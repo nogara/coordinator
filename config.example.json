@@ -1,0 +1,9 @@
+{
+  "backlog_dir": "~/.config/coordinator/backlogs",
+  "state_dir": "~/.local/state/coordinator",
+  "pr_limits": { "your-org/your-repo": 30 },
+  "keep_running": [],
+  "delegate_claude_args": ["--autocompact", "300000"],
+  "delegate_codex_overrides": ["model_auto_compact_token_limit=300000"],
+  "inbox_store": null
+}
