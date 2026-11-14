@@ -14,8 +14,8 @@ for the next item. Your memory is the domain's **backlog** file.
 
 The scripts this skill names are in its `scripts/` folder. Run them by full
 path, from the skill's base directory. Settings come from
-`~/.config/coordinator/config.json`; `scripts/fleet.py` lists the keys and
-their defaults. `<backlog_dir>` and `<state_dir>` below are its folders.
+`~/.config/coordinator/config.json`, or the file `COORDINATOR_CONFIG` names;
+`scripts/fleet.py` lists the keys and their defaults. `<backlog_dir>` and `<state_dir>` below are its folders.
 
 ## Start
 
@@ -230,7 +230,7 @@ and the handle when delegated:
 
 A done item carries the date, what changed and what it touched. Update the
 file in the turn a state changes: it is what survives compaction and a
-restart. When `<backlog_dir>` is in a Git repo, commit the backlog there by
+restart. When `<backlog_dir>` is in a Git repo that does not ignore it, commit the backlog there by
 file name, with `git commit --only <backlog path>`, so other sessions'
 staged work stays out and every state has history.
 

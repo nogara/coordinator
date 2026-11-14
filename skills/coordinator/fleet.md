@@ -134,7 +134,8 @@ Pick the agent and the effort from the brief, as you pick the model:
 - The fleet: `hc ls` lists every live terminal with its status, name and
   parent. `hc get <name>` adds one terminal's labels. With the inbox mod
   installed, `inbox.needs-you` is the count of items its inbox holds for the
-  user and `inbox.status` is the top one. `fleet_status.py` joins your
+  user, and `inbox.status` is the inbox's one-line summary of the session:
+  its top item when it holds one, otherwise what the session is doing. `fleet_status.py` joins your
   delegates to their pull requests and inbox items. Sweep at Start, after
   compaction or a restart, and when the watcher fires.
 - A settled delegate: read its `REPORT.md` and its inbox labels first. For a

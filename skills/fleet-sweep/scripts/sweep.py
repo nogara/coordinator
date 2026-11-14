@@ -75,7 +75,8 @@ def git(repo, *args):
 
 def default_bases(repo, extra):
     head = git(repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
-    bases = [head.strip()] if head else []
+    local_default = next((b for b in ("main", "master") if git(repo, "rev-parse", "--verify", "-q", f"refs/heads/{b}")), None)
+    bases = [head.strip()] if head else [local_default] if local_default else []
     return bases + [b for b in extra if git(repo, "rev-parse", "--verify", "-q", b)]
 
 
@@ -375,6 +376,8 @@ def report(args):
     order = {"SAFE": 0, "CLOSE": 1, "ASK": 2, "KEEP": 3}
     for verdict, text in sorted(rows, key=lambda r: order[r[0]]):
         print(f"{verdict:5} {text}")
+    if not rows:
+        print("nothing to sweep: no worktrees, landed branches, stale scratch or stray processes")
     return 0
 
 
