@@ -287,12 +287,15 @@ def main() -> int:
             return 0
 
         domain = args.domain
-        herd.backlog(domain)
+        if args.command != "start":
+            herd.backlog(domain)
         label = getattr(args, "name", None) or coordinator_name(domain)
         if args.command == "start":
             if herd.coordinator_of(domain):
                 raise Refused(f"a coordinator for {domain} is already running")
             cwd = os.path.realpath(os.path.expanduser(args.cwd))
+            if not os.path.isdir(cwd):
+                raise CheckError(f"no folder at {cwd}")
             if args.in_terminal:
                 if fleet.find_agent(herd.agents, args.in_terminal):
                     raise Refused(f"terminal {args.in_terminal} runs an agent; use `restart {domain} --terminal`")
