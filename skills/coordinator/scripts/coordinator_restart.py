@@ -211,12 +211,14 @@ def start_in(address: str, domain: str, cwd: str, label: str) -> None:
 
 
 def open_inbox_panel(address: str) -> None:
-    """Open the inbox mod's pane to the right of the terminal, unless it has one.
+    """Open the inbox mod's pane to the right of the terminal, unless it has one or the inbox is not installed.
 
     The inbox finds an open panel by the terminal's inbox.panel label, which
     holds the panel's pane id.
     """
     try:
+        if fleet.inbox_store() is None:
+            return
         terminal = fleet.terminal_or_none(address) or {}
         if (terminal.get("labels") or {}).get("inbox.panel"):
             return

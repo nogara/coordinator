@@ -49,7 +49,7 @@ done
 
 say ""
 missing=0
-for tool in hc herdr-app claude git gh python3; do
+for tool in hc herdr-app claude git python3; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         say "missing: $tool (see README.md, Requirements)"
         missing=1
@@ -59,6 +59,7 @@ if command -v python3 >/dev/null 2>&1 && ! python3 -c 'import sys; sys.exit(sys.
     say "python3 is older than 3.9"
     missing=1
 fi
+command -v gh >/dev/null 2>&1 || say "not found: gh, which domains with a GitHub repo need"
 command -v codex >/dev/null 2>&1 || say "optional, not found: codex (for Codex delegates)"
 [ "$missing" = 0 ] && say "Every required tool was found."
 

@@ -69,8 +69,8 @@ Pick the agent and the effort from the brief, as you pick the model:
 
 - Codex for a change the brief bounds to named files and checks with a
   command, when the delegate posts nothing for people: a lint or comment
-  fix, a type fix, a rename, a rebase, a conflict fix. Codex runs on a
-  separate subscription, so it spares the user's Claude limits.
+  fix, a type fix, a rename, a rebase, a conflict fix. Codex has usage limits of its own, so this spares the
+  user's Claude Code limits.
 - Claude Code for everything else, and when unsure. That covers PR
   comments, review replies and descriptions, design, debugging and new
   features.
@@ -97,8 +97,8 @@ Pick the agent and the effort from the brief, as you pick the model:
 - Read its `REPORT.md` and its terminal when it settles. Its inbox items
   may not reach `fleet_status.py`, which reads the Claude Code inbox's
   store.
-- A running Codex keeps the account it started with. To move a settled
-  delegate to another account, run `delegate_end.py <name> --now`, then
+- A running Codex keeps the account it signed in with. To move a settled
+  delegate to the account Codex uses now, after the user switches, run `delegate_end.py <name> --now`, then
   `delegate_end.py --resume <name>`. A working one keeps its account until
   its turn ends.
 

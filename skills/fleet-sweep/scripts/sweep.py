@@ -13,7 +13,7 @@ remove re-checks one worktree, moves its ignored files other than build output
 to <main checkout>/.scratch/parked/<worktree name>, removes the worktree and
 deletes its branch, and refuses when anything would be lost. With --park it
 keeps the branch, or creates parked/<worktree name> for a detached worktree.
-Each parked folder holds a PARKED_AT file with the time it was parked, for a
+Each parked folder holds a .parked-at file with the time it was parked, for a
 clean-up job that deletes old ones; nothing here deletes them. prune-branches
 lists local branches whose work is on a base branch or whose PR merged, or
 deletes the named ones and prints each one's hash.
@@ -318,7 +318,7 @@ def orphan_process_rows(procs, worktree_roots):
 
 
 def scratch_rows(repo):
-    """Leaves out parked/: the daily cleanup deletes parked folders."""
+    """Leaves out parked/, which holds what removed worktrees left behind."""
     scratch = os.path.join(repo, ".scratch")
     if not os.path.isdir(scratch):
         return

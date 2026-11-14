@@ -81,13 +81,14 @@ git clone https://github.com/petekp/coordinator.git ~/src/coordinator
 finds them, and `~/.agents/skills`, where Codex finds them. It then checks
 for the tools above. Keep the clone where it is: the links point into it.
 To update, run `git pull` in the clone. To uninstall, run
-`./install.sh --remove`, then delete the clone.
+`~/src/coordinator/install.sh --remove`, then delete the clone.
 
 ## Configure
 
 Every setting has a default, so you can skip this at first. To change one,
-copy `config.example.json` to `~/.config/coordinator/config.json` and edit
-it. `COORDINATOR_CONFIG` can name another file.
+copy `config.example.json` to `~/.config/coordinator/config.json`, delete
+the keys you don't need, and edit the rest. Its values are examples, not the
+defaults. `COORDINATOR_CONFIG` can name another file.
 
 | Key | What it sets | Default |
 |---|---|---|
@@ -144,6 +145,13 @@ Each script's `--help` covers it in full.
   `.scratch/`, into `<main checkout>/.scratch/parked/`. Nothing here
   deletes parked folders, so clear them out now and then.
 - Codex delegates start only in repos you have marked as trusted in Codex.
+- Delegates run in your Claude Code permission mode. In the default mode
+  each one stops at permission prompts, and at the folder trust prompt in
+  each new worktree, until you answer in its tab.
+- Delegates start through your login shell when it is zsh, bash or another
+  POSIX shell, so they get your PATH. With fish or another non-POSIX shell
+  they start through `/bin/sh`, and need `hc`, `claude` and `python3` on
+  its PATH.
 
 ## License
 

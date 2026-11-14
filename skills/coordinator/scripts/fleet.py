@@ -381,7 +381,9 @@ class Fleet:
 
 # herdr-core starts terminals with its own environment, not the user's. A login
 # shell gives the session the PATH of the user's own terminals.
-SHELL = pwd.getpwuid(os.getuid()).pw_shell or os.environ.get("SHELL") or "/bin/sh"
+POSIX_SHELLS = {"zsh", "bash", "sh", "ksh", "dash"}
+LOGIN_SHELL = pwd.getpwuid(os.getuid()).pw_shell or os.environ.get("SHELL") or ""
+SHELL = LOGIN_SHELL if os.path.basename(LOGIN_SHELL) in POSIX_SHELLS else "/bin/sh"
 LOGIN_SHELL_THAT_BECOMES_ITS_COMMAND = [SHELL, "-lic", 'exec "$@"', SHELL]
 LOGIN_SHELL_THAT_OUTLIVES_ITS_COMMAND = [SHELL, "-lic", '"$@"; exec "$0" -li', SHELL]
 

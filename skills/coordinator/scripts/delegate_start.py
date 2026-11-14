@@ -56,7 +56,7 @@ from fleet import CheckError  # noqa: E402
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("name", help="the delegate's terminal name")
-    parser.add_argument("--task", required=True, help='a few words for the tab, as in "toasts off"')
+    parser.add_argument("--task", required=True, help='a few words for the tab, as in "retry button"')
     parser.add_argument("--cwd", required=True, help="the delegate's worktree, or the domain's folder when it has no repo")
     parser.add_argument("--brief", help="path to the brief the delegate reads first")
     parser.add_argument("--agent", choices=[fleet.CLAUDE, fleet.CODEX], default=fleet.CLAUDE)

@@ -55,6 +55,9 @@ def quiet_since(agent: dict, now: dt.datetime) -> dt.datetime | None:
 
 
 def list_idle(herd: fleet.Fleet, domain: str, now: dt.datetime) -> int:
+    if domain in fleet.DOMAINS_KEPT_RUNNING:
+        print(f"{domain} is in keep_running, so its delegates are not ended.")
+        return 0
     rows = []
     for member in herd.members_of(domain):
         agent = member["agent"]
