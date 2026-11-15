@@ -16,7 +16,7 @@ agent in a terminal that stays alive and shows them all in one app.
 ## How it works
 
 - The coordinator is a Claude Code session you start with
-  `/coordinator <domain>`. It owns one domain and keeps its state in a
+  `/coordinator <domain or project>`. It owns one domain and keeps its state in a
   Markdown **backlog** file: what the domain covers, what you approved for
   good, what is open, and what is done. The backlog is what survives a
   restart.
