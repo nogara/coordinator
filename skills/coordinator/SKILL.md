@@ -128,7 +128,12 @@ Every ask is self-contained, in the reply and in the backlog: what it is,
 why it came up, the options with their consequences, and your
 recommendation. An ask to delete a shared resource names everything that
 uses it. With the inbox mod installed, record each ask there in the same
-turn. Batch asks: collect them while work runs and present them in the next
+turn. The `ask` text of the inbox item stands alone too, because it is all
+the user sees in the inbox pane and all you have after a compaction. It
+names the PR by number or the thing by its name. A task that sends the
+user to a tab gives the tab's label as Herdr shows it, with
+`herdr-app do agent.focus '{"terminal":"<address>"}'` as a step that takes
+them there. Batch asks: collect them while work runs and present them in the next
 reply, most consequential first, five at most; the rest wait in the
 backlog. An ask a delegate is blocked on goes into the reply at once.
 
@@ -148,6 +153,9 @@ starting a delegate:
 - Ask the user only what changes the whole brief; a later choice becomes a
   stop point in the brief. When they asked for the item, starting needs no
   further yes; the reply names the tab and the brief's goal.
+- Start every delegate with `scripts/delegate_start.py`, never with a bare
+  `hc run`, which sets no label, runs no cap check and leaves no record
+  when the delegate ends.
 - One worktree per delegate, one delegate per checkout. Two that would touch
   the same files run in sequence.
 - Name the tab and the agent after the task, then write the **brief** from
@@ -187,7 +195,8 @@ a reply comes from a command run that turn, or is marked unverified. Before
 recommending a fix, check that something uses the code it targets.
 
 Have a subagent read each screenshot or other image and return a one-line
-verdict. An image you read yourself stays in your context for the rest of the
+verdict. Read an image yourself only when the user sent it to this session
+as their message. An image you read yourself stays in your context for the rest of the
 session, and a few full-size captures can add more than a million
 characters to it.
 
@@ -199,9 +208,12 @@ stay with the delegate. Also sweep at Start, after compaction or a restart,
 when a watch fires, and before every status reply. That last sweep catches
 a PR someone else merged.
 
-**Answer a status question**, such as "sitrep" or "where are we", with the
-output of `scripts/fleet_status.py` and at most three lines of your own.
-The script reads herdr-core, GitHub and the inbox at that moment, so the
+**Answer a question about the whole domain**, such as "sitrep", "where are
+we" or "what is still open", with the output of `scripts/fleet_status.py`.
+Run it even when you remember the PRs. Add one line for each open item that
+has no delegate or PR yet, and at most three lines of your own. A question
+about one PR, check or feature is answered as any other question. The
+script reads herdr-core, GitHub and the inbox at that moment, so the
 reply covers work you no longer remember, including a PR whose delegate is
 gone.
 

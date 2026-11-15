@@ -182,13 +182,12 @@ Pick the agent and the effort from the brief, as you pick the model:
   `delegate_cap.py --to <name> --send "<answer>"`. The send waits for a
   draft the user is typing there, and refuses a blocked terminal.
 - Gone, missing from `hc ls` after a crash or a closed tab, and not one you
-  closed yourself: start the same
-  session again with
+  closed yourself: start the same session again with
   `<scripts>/delegate_start.py <name> --task "<task>" --cwd <worktree> --resume <session id>`,
   taking each value from the backlog handle. For a Codex delegate add
   `--effort <effort>`, also from the handle. Then send "Continue from your
-  brief." with `delegate_cap.py --to <name> --send`. After two failed starts, stop and bring the user the terminal
-  text.
+  brief." with `delegate_cap.py --to <name> --send`. After two failed
+  starts, stop and bring the user the terminal text.
 - Drifting: handle it as SKILL.md says. When it is mid-change, stop its
   turn first with `hc interrupt <name>`.
 - To stop a process another session started, such as a runaway build, ask
