@@ -71,9 +71,9 @@ it.
 
 Message your coordinator only when you are blocked on something another
 session holds, or when a question blocks all your work. Send no progress
-messages. Use `hc send <coordinator's address> "<text>"`<, or in Claude
-Code `SendMessage` to `<the coordinator's session name, as ListAgents shows
-it>`>.
+messages. Use `hc send <coordinator's address> "<text>"`. <For a Claude
+Code coordinator, add: Or use `SendMessage` to `<its session name, as
+ListAgents shows it>`.>
 
 Then end your turn with the same in your reply, so the coordinator's watch
 fires.

@@ -94,7 +94,9 @@ finds each coordinator with work and no watcher, and sends it one line
 asking it to arm the watcher again. It runs every ten minutes from a
 scheduler. In both examples below, replace `/Users/you` with their home
 folder and adjust `PATH` so it finds `hc`, `gh` and `python3`. Both write
-errors to `~/.local/state/coordinator`, so create that folder first.
+errors to `~/.local/state/coordinator`, the default `state_dir`, so create
+that folder first. When they set another `state_dir`, put that folder in
+the error path instead.
 
 On macOS, write `~/Library/LaunchAgents/coordinator.watcher-check.plist`:
 

@@ -76,12 +76,12 @@ daemon or an `expect` session left by a worktree you removed. Stop it by
 PID with `kill <pid>`.
 
 **SAFE ended-delegate records:** `sweep.py prune-ended` removes each
-record in the coordinator's `<state_dir>/ended/` whose PR merged or
-closed, or whose worktree is gone with no open PR. It prints each one's
-name, domain, program and session id. `--list` prints them and removes
-nothing. `delegate_end.py --resume` can no longer find a removed delegate.
-`claude --resume <session id>`, or `codex resume <session id>` for a Codex
-delegate, still opens its session.
+record in the coordinator's `<state_dir>/ended/`, from every domain, whose
+PR merged or closed, or whose worktree is gone with no open PR. It prints
+each one's name, domain, program and session id. `--list` prints them
+and removes nothing. `delegate_end.py --resume` can no longer find a
+removed delegate. `claude --resume <session id>`, or
+`codex resume <session id>` for a Codex delegate, still opens its session.
 
 **CLOSE**, when the backlog holds its handle:
 
