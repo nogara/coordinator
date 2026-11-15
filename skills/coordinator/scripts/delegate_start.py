@@ -41,7 +41,6 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
-import json
 import os
 import subprocess
 import sys
@@ -156,9 +155,9 @@ def main() -> int:
     if args.resume:
         print(f"Nothing was sent. Send it the work with:\n"
               f"  {fleet.SCRIPTS}/delegate_cap.py --to {args.name} --send \"<what arrived>\"")
-    if not terminal["tab_named"]:
-        print(f"The app did not name the tab. Name it with: herdr-app do tab.rename "
-              f"'{json.dumps(dict(id=fleet.app_tab_id(terminal['labels']['herdr.tab']), name=tab_label))}'")
+    hint = fleet.tab_rename_hint(terminal, tab_label)
+    if hint:
+        print(hint)
     return 0
 
 

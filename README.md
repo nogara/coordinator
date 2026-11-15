@@ -117,7 +117,7 @@ defaults. `COORDINATOR_CONFIG` can name another file.
 | `user_names` | regular expressions for your name, so the backlog check also finds your words quoted after it, as in `Sam said "..."` | none |
 | `open_ask_patterns` | regular expressions, matched ignoring case, for other ways your backlogs mark an open ask | none |
 | `check_for_updates` | whether the fleet watcher checks, at its first wake-up each day, that the clone is up to date with its upstream | `true` |
-| `herdr_machine` | the name the Herdr app shows for this machine, when the app runs on another one and reaches this machine's herdr-core, such as `devvm-fis`; the tab rename command a delegate start prints then names the tab as `devvm-fis/tb...` | unset |
+| `herdr_machine` | the name the Herdr app shows for this machine, when the app runs on another one and reaches this machine's herdr-core, such as `devvm-fis`; the tab rename command a delegate start or resume prints then names the tab as `devvm-fis/tb...` | unset |
 
 Put `backlog_dir` inside a Git repo if you want the coordinator to commit
 each backlog change.

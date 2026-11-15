@@ -188,6 +188,9 @@ def resume(herd: fleet.Fleet, domain: str, name: str) -> int:
     path.unlink()
     print(f"resumed {name} as terminal {terminal['address']}, tab \"{tab_label}\". Send it the work with:\n"
           f"  {fleet.SCRIPTS}/delegate_cap.py --to {name} --send \"<what arrived>\"")
+    hint = fleet.tab_rename_hint(terminal, tab_label)
+    if hint:
+        print(hint)
     return 0
 
 

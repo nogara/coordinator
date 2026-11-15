@@ -444,6 +444,14 @@ def app_tab_id(tab: str) -> str:
     return f"{HERDR_MACHINE}/{tab}" if HERDR_MACHINE else tab
 
 
+def tab_rename_hint(terminal: dict, tab_label: str) -> str | None:
+    """The line telling the user how to name a tab that launch could not name, or None when it named it."""
+    if terminal["tab_named"]:
+        return None
+    return (f"The app did not name the tab. Name it with: herdr-app do tab.rename "
+            f"'{json.dumps(dict(id=app_tab_id(terminal['labels']['herdr.tab']), name=tab_label))}'")
+
+
 def end_terminal(address: str) -> None:
     """End a terminal's program, if it still runs, and remove its record.
 
