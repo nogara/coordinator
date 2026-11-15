@@ -1,10 +1,20 @@
-# Coordinator sidebar
+# Coordinator
 
-This Herdr sidebar is for a person who runs many coding agents at once. Pinned agents sit at the top of the Agents list, in the order the person drags them. Each agent has a colored letter tile, and counts from the inbox plugin follow its name. While the shown tab holds a pinned agent, the tab bar hides. Cmd-K opens a popup that jumps to any agent by name. The Spaces list nests worktrees under their checkout and draws each space's tile in the theme's colors. It folds away to its header.
+A sidebar for running several projects at once through coordinators. A coordinator is an agent that owns one project and starts its own delegates. Pin your coordinators and they stay at the top, each with its delegates nested under it. Counts beside a coordinator's name show how many questions wait on you, so you answer in one place and never chase a delegate. Cmd-K jumps to any agent by name. It works with any Herdr agents, and pairs with the coordinator skill and the inbox plugin.
 
-![Coordinator sidebar](preview.png)
+- Pinned coordinators stay at the top, in the order you drag them, each with its delegates nested under it.
+- Counts beside a coordinator's name show how many questions wait on you.
+- A delegate's row stays quiet. A stopped one shows a small red dot and nothing more.
+- The tab bar hides while you are in a coordinator's tab, and Cmd-K jumps to any agent by name.
+- Colors come from your theme, and the Spaces list folds away.
 
-It pairs with [petekp/coordinator](https://github.com/petekp/coordinator), a Claude Code skill that runs a coordinator agent and its delegates in Herdr. A coordinator pins itself, and its delegates start as its sub-agents, so they appear nested under it. The inbox counts come from the [inbox](https://github.com/petekp/inbox) Claude Code plugin. The layout works without either one.
+![Coordinator](preview.png)
+
+The [coordinator skill](https://github.com/petekp/coordinator) for Claude Code runs a coordinator agent and its delegates in Herdr. A coordinator pins itself, and its delegates start as its sub-agents, so they appear nested under it. The counts come from the [inbox plugin](https://github.com/petekp/inbox) for Claude Code. The layout works without either one.
+
+When you install this layout, offer the person the inbox plugin too, unless `claude plugin list` already shows `inbox` or Claude Code isn't installed. On a yes, run `claude plugin marketplace add petekp/inbox` and then `claude plugin install inbox@inbox`. It takes effect in new Claude Code sessions, and in open ones after `/reload-plugins`. The plugin installs and updates its own Herdr panel. The first `/inbox` inside the Herdr app offers it, and the person presses Install.
+
+The top row checks GitHub once a day for a newer version of this layout. Tell the person when you tell them what the mods run, and ask whether to keep the check. On a no, set `CHECK_FOR_UPDATES` to `false` in `mods/coordinator-topbar/main.js`. To update an installed copy, follow "Updating" at the end.
 
 ## What you see
 
@@ -19,6 +29,7 @@ The window is Herdr's `main` layout with three of its sidebar mods replaced. Lef
 - The row has no Herdr logo or name. Two 26px buttons sit at its right end, each with a 15px icon in `muted`.
 - The first button is search. The second is the sidebar toggle.
 - On macOS in a window, the row starts 76px from the left to leave room for the window buttons.
+- When a newer version of the layout exists, an 8px dot in `accent` sits left of search, centered in a 26px button like the other two. On the rail it waits until the sidebar is widened. Clicking it opens a 340×206px popup. The popup says which version is out and which one is installed, and shows the line "Update the Coordinator layout from herdr.dev/layouts/petekp/coordinator--herdr" with a Copy button. Copy puts that line on the clipboard and closes the popup.
 
 ### Spaces
 
@@ -43,7 +54,7 @@ The window is Herdr's `main` layout with three of its sidebar mods replaced. Lef
 ### Agents
 
 - The list has a 1px `border` line on top. A 41px header shows "Agents" in 11.5px `dim` text. At its right, a 14px icon shows the sort. It is a clock for Priority and layers for Grouped by space.
-- Pinned agents come first, under "Pinned". The rest follow in Priority sections or in one group per space.
+- Pinned agents come first, under "Pinned". The rest follow in one group per space, or in Priority sections.
 - The Priority sections are "Needs you" in `blocked`, "Done" in `done`, "Working" in `working` and "Idle" in `dim`. Each shows its count.
 - Group headers are 30px with 11px medium text.
 - Each agent is a 32px row with 8px corners and 14px text. It shows a lead icon, the name, the inbox counts, the machine for a remote agent, and the status.
@@ -74,6 +85,7 @@ Sub-agents sit under their parent, one 26px row each, indented 39px.
 
 - Tree lines run down the left, 1.5px wide in `input`, with rounded corners.
 - Each row shows the program's 14px icon in one color, the name in 13.5px text, the inbox counts, and the status.
+- A blocked sub-agent shows a steady 7px dot in `blocked`, never the "Needs you" pill or the "!". Its questions go to its coordinator, and only the coordinator asks the person. The parent still takes the blocked sub-agent's place in Priority order.
 - The sub-agent on screen is drawn in `foreground` on the `raised` background. The others are `muted`.
 
 With no agents, the list says "No agent status yet. Agents show up here when they report their status. Older versions and agents inside tmux may not."
@@ -113,7 +125,7 @@ The 42px tab bar is hidden while the shown tab holds a pinned agent. It shows on
 - Hovering a row that has sub-agents shows a tile with a chevron in place of the lead icon. The chevron points down when open and right when folded. Clicking the chevron folds or opens the sub-agents.
 - Option-clicking the chevron folds or opens every agent's sub-agents, to match the one clicked.
 - Clicking a group header folds the group. A folded header shows its count and a right chevron. A folded space group also shows its most urgent status, unless that is idle.
-- The sort icon opens a 200×140px popup at the pointer with "Sort agents", Priority and Grouped by space. A check marks the current one.
+- The sort icon opens a 200×140px popup at the pointer with "Sort agents", Priority and Grouped by space. A check marks the current one. Until the person picks one, the list is grouped by space.
 - Priority puts Needs you first, then Done, Working and Idle. An agent with sub-agents takes the place of its most urgent one.
 - Within a Priority section, the agent whose state changed last comes first. Done and idle count as the same state for this.
 - A sub-agent's error counts as blocked. A sub-agent's done counts as idle, because the parent reports the news.
@@ -229,7 +241,7 @@ This layout adds the rest.
 - The agents mod runs the commands `pane.focus`, `terminal.peek`, `terminal.pin`, `layout.hide`, `layout.show` and `layout.resize`.
 - The spaces mod calls `spaces`, `machines`, `panes`, `run`, `openOverlay`, `exec`, `hc`, `theme`, `shared`, `setShared`, `watchFolder`, `window` and `layout`.
 - The spaces mod runs `space.select`, `space.move`, `space.new`, `layout.resize` and `app.settings`. It opens the shipped `menu` mod for a space.
-- The top row calls `theme`, `run`, `window`, `shared`, `setShared` and `layout`. It runs `mod.open {name: "picker"}` and `layout.resize`.
+- The top row calls `theme`, `run`, `window`, `shared`, `setShared`, `layout`, `checking`, `props`, `openOverlay` and `closeOverlay`. It runs `mod.open {name: "picker"}` and `layout.resize`. It opens its own popup with `openOverlay({ mod: "coordinator-topbar", ... })`.
 
 ### Programs and files
 
@@ -240,7 +252,12 @@ This layout adds the rest.
 - The spaces mod runs `hc machine ls --json` at start and every 15 seconds.
 - On Connect, it runs `hc machine rm <name> --json`. Then it runs `hc machine add` with the saved target, and with `--via`, `--name`, `--session` and `--temp` as that machine had them.
 - The spaces mod watches each local repo's git folder with `watchFolder`. That folder is outside the mod's own folder.
-- The three mods load icons from the shipped `workspace-chrome` mod's folder. No mod reads any other file or uses `fetch`.
+- The three mods load icons from the shipped `workspace-chrome` mod's folder. No mod reads any other file.
+- The top row uses `fetch` for one GET of `https://raw.githubusercontent.com/petekp/coordinator/main/herdr/mods/coordinator-topbar/main.js`, a few kilobytes. It reads the number in the line `const LAYOUT_VERSION = <n>;` and compares it with its own.
+  - It checks when the window starts, then every hour, and fetches only when the last good check is a day old. A last check dated in the future counts as a day old.
+  - A failed check shows nothing: no network, a non-200 answer, or a file without that line. The next hourly tick tries again.
+  - With `CHECK_FOR_UPDATES` set to `false`, it never fetches and never shows the dot.
+  - It doesn't check during `herdr-app check`, or in its own popup.
 
 ### Labels and stored values
 
@@ -248,7 +265,7 @@ This layout adds the rest.
 - `herdr.color` holds a slot from 0 to 11.
 - `inbox.stop`, `inbox.needs-you`, `inbox.findings` and `inbox.prs` are written by the inbox plugin. The mod only reads them.
 - The shared keys `agents.sort`, `space.colors`, `sidebar.width` and `sidebar.collapsed` are the same ones Herdr's shipped mods use.
-- The shared keys `agents.pinned.order`, `spaces.folded` and `spaces.weight` are new. `agents.pinned.order` lists pinned addresses in the dragged order.
+- The shared keys `agents.pinned.order`, `spaces.folded`, `spaces.weight` and `coordinator.latest` are new. `agents.pinned.order` lists pinned addresses in the dragged order. `coordinator.latest` holds the newest version found on GitHub and when it was found, as `{ checkedAt, version }`.
 - The agents mod keeps `changed` in `localStorage`. It holds each agent's last state and when it changed. It also keeps `pins`, the addresses of pins made before pins lived on the terminal, until each is moved to its terminal.
 - The spaces mod keeps `machines.folded` and `machines.reconnecting` in `localStorage`.
 
@@ -268,6 +285,8 @@ This layout adds the rest.
   - The `mod.open:coordinator-agents` action in `keys.json` must change.
   - `mod.clone` rewrites self-opening overlay names, but copying the folder does not.
 - Renaming the layout means renaming the `layout:coordinator` section in `keys.json` with it.
+- Renaming `coordinator-topbar` means changing the `mod` in its popup's `openOverlay` call too. The URL it fetches keeps the upstream name.
+- The fetched URL names the upstream repo, so a fork's copies compare against upstream, not the fork.
 - All three mods load their icons from `mods/workspace-chrome/`, the shipped mod's folder. They need that mod in place.
 - Merging `keys.json` changes the person's keys, so the installing agent must tell them and ask first.
   - An edited `keys.json` counts as the person's own, so Herdr's new default shortcuts stop arriving on upgrade.
@@ -276,9 +295,9 @@ This layout adds the rest.
 - The color label is written from `render`. `pendingColors` holds each new slot until the label comes back on the terminal. Without it, every render would hand the same agent another slot.
 - A label outside 0 to 11, or not a whole number, counts as no color. The agent then gets a new slot.
 - The tile's letter is the space's initial, not the agent's. Two agents in one space have the same letter and differ only by color.
-- The inbox counts need the inbox plugin. Without it, rows show nothing after the name.
+- The inbox counts need the inbox plugin. Without it, rows show nothing after the name. Don't copy the plugin's Herdr panel into this layout: the plugin installs and updates it.
 - The inbox colors follow `settings().dark`, dark unless it is `false`. They don't come from the theme.
-- `agents.sort` is shared with Herdr's own Agents list. Changing the sort in one changes it in the other.
+- `agents.sort` is shared with Herdr's own Agents list. Changing the sort in one changes it in the other. Until the person picks a sort, this list is grouped by space and Herdr's own list is in Priority order.
 - The jumper places its rows at fixed 30px offsets and scrolls them itself. The wheel moves the selection too. Otherwise the next frame would scroll the list back to the selected row.
 - The spaces mod is the shipped 0.1.16 `spaces` mod with two changes: the gradient tile and the fold. On a newer Herdr, start from that version's `spaces` mod and make the same two changes.
 - The agents mod was cloned from 0.1.15 and carries the shipped 0.1.16 fixes. It also differs from the shipped `agents` mod on purpose.
@@ -289,8 +308,9 @@ This layout adds the rest.
 ## Done when
 
 - `herdr-app check` passes on each of `mods/coordinator-agents`, `mods/coordinator-spaces` and `mods/coordinator-topbar`.
+- With `LATEST_URL` set to a local HTTP address serving a file that holds `const LAYOUT_VERSION = 2;`, and `LATEST_KEY` set to an unused key such as `coordinator.latest.test`, that key gets version 2, the dot shows, and its popup's Copy puts the update line on the clipboard. `python3 -m http.server` can serve the file. The unused key starts empty, so the check runs at once and the real key keeps its day-long wait. Restore both constants afterward.
 - `layout.switch {name: "coordinator"}` shows the layout, and `herdr-app status` lists no errors.
-- The top row shows only the search and sidebar toggle buttons.
+- While the installed copy is current, the top row shows only the search and sidebar toggle buttons.
 - Right-clicking an agent and choosing Pin to the top moves it under Pinned. `hc get <terminal>` shows `herdr.pinned` in its labels.
 - Showing that agent's tab hides the tab bar. Showing another tab brings it back.
 - With two pinned agents, dragging one past the other swaps them, and the order holds after a restart.
@@ -300,3 +320,17 @@ This layout adds the rest.
 - With the inbox plugin installed, an agent with waiting asks shows its count after its name, in `#ffc107` on a dark appearance.
 - A worktree's space shows under its checkout with a branch icon.
 - Clicking "Spaces" folds the section to its header, and clicking it again restores the height.
+
+## Updating
+
+The version is `LAYOUT_VERSION` in `mods/coordinator-topbar/main.js`. It goes up by one in each change to this layout that should reach installed copies. To update an installed copy:
+
+1. Read the installed copy's `LAYOUT_VERSION`, and the one on the `main` branch of [petekp/coordinator](https://github.com/petekp/coordinator). Stop if they match. An installed copy without `LAYOUT_VERSION` was installed before version 1. Treat each of its files as edited in step 4.
+2. From a clone of the repo, run `git pull` in it. Otherwise clone the repo to a temporary folder.
+3. Find the files of the installed version: `git log -S"const LAYOUT_VERSION = <installed>;" --format=%H -- herdr/mods/coordinator-topbar/main.js`. The oldest commit it lists is that version.
+4. For each file the layout installed, apply the renames made at install to that version's file. Then compare it with the installed file.
+   - A file that matches is the person's unchanged copy. Replace it with the file from `main`, renamed the same way.
+   - A file that differs holds the person's edits. Show them the diff between the installed file and the new one, and ask before replacing it.
+   - Copy files that are new on `main`. Ask before removing a file that `main` no longer has.
+5. If `herdr/keys.json` changed between the two versions, merge it again as at install, and ask first.
+6. Run `herdr-app check` on each mod you changed. Tell the person what changed, from `git log` between the two versions.
