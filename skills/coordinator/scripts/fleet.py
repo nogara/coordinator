@@ -444,6 +444,19 @@ def app_tab_id(tab: str) -> str:
     return f"{HERDR_MACHINE}/{tab}" if HERDR_MACHINE else tab
 
 
+def app_address(address: str) -> str:
+    """A terminal address as `herdr-app` takes it on the machine that runs the app; see app_tab_id."""
+    return f"{HERDR_MACHINE}/{address}" if HERDR_MACHINE else address
+
+
+def app_address_note(address: str) -> str | None:
+    """The line naming a terminal's address in the app, when the app runs on another machine."""
+    if not HERDR_MACHINE:
+        return None
+    return (f"In the Herdr app, on the machine that runs it, this terminal is {app_address(address)}: "
+            f"herdr-app do agent.focus '{json.dumps(dict(terminal=app_address(address)))}'")
+
+
 def tab_rename_hint(terminal: dict, tab_label: str) -> str | None:
     """The line telling the user how to name a tab that launch could not name, or None when it named it."""
     if terminal["tab_named"]:

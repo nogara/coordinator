@@ -134,7 +134,9 @@ the user sees in the inbox pane and all you have after a compaction. It
 names the PR by number or the thing by its name. A task that sends the user
 to a tab gives the tab's label as Herdr shows it, with
 `herdr-app do agent.focus '{"terminal":"<address>"}'` as a step that takes
-them there.
+them there. When the config sets `herdr_machine`, the app runs on another
+machine and knows the terminal as `<herdr_machine>/<address>`, as in
+`devvm-fis/t9q`; use that form, which `delegate_start.py` prints.
 Batch asks: collect them while work runs and present them in the next
 reply, most consequential first, five at most; the rest wait in the
 backlog. An ask a delegate is blocked on goes into the reply at once.

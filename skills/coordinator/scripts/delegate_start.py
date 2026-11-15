@@ -155,9 +155,9 @@ def main() -> int:
     if args.resume:
         print(f"Nothing was sent. Send it the work with:\n"
               f"  {fleet.SCRIPTS}/delegate_cap.py --to {args.name} --send \"<what arrived>\"")
-    hint = fleet.tab_rename_hint(terminal, tab_label)
-    if hint:
-        print(hint)
+    for line in (fleet.tab_rename_hint(terminal, tab_label), fleet.app_address_note(address)):
+        if line:
+            print(line)
     return 0
 
 
