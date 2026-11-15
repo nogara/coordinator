@@ -2,7 +2,7 @@
 """
 Start a delegate in its own Herdr app tab, listed under its coordinator.
 
-  delegate_start.py <name> --task "<task>" --cwd <worktree> --brief <path> --model sonnet|opus
+  delegate_start.py <name> --task "<task>" --cwd <worktree> --brief <path> --model sonnet|opus|fable [--effort <effort>]
   delegate_start.py <name> --task "<task>" --cwd <worktree> --brief <path> --agent codex --effort low|medium|high|xhigh
   delegate_start.py <name> --task "<task>" --cwd <worktree> --resume <session id> [--effort <effort>]
 
@@ -52,6 +52,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fleet  # noqa: E402
 from fleet import CheckError  # noqa: E402
 
+CLAUDE_CODE_EFFORTS = (*fleet.CODEX_EFFORTS, "max")
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -60,14 +62,15 @@ def main() -> int:
     parser.add_argument("--cwd", required=True, help="the delegate's worktree, or the domain's folder when it has no repo")
     parser.add_argument("--brief", help="path to the brief the delegate reads first")
     parser.add_argument("--agent", choices=[fleet.CLAUDE, fleet.CODEX], default=fleet.CLAUDE)
-    parser.add_argument("--model", choices=["sonnet", "opus"], help="for a new Claude Code delegate")
-    parser.add_argument("--effort", choices=fleet.CODEX_EFFORTS, help="for a Codex delegate, new or resumed")
+    parser.add_argument("--model", choices=["sonnet", "opus", "fable"], help="for a new Claude Code delegate")
+    parser.add_argument("--effort", choices=CLAUDE_CODE_EFFORTS,
+                        help="for a new delegate, or a resumed Codex one. A Claude Code delegate without it runs at its settings' effort")
     parser.add_argument("--resume", metavar="SESSION", help="start this existing session again instead of a new one")
     parser.add_argument("--for-pr", metavar="NUMBER", type=int)
     parser.add_argument("--user-asked", action="store_true")
     args = parser.parse_args()
     starts_codex = not args.resume and args.agent == fleet.CODEX
-    what_a_new_one_needs = args.effort and not args.model if starts_codex else args.model and not args.effort
+    what_a_new_one_needs = args.effort and not args.model if starts_codex else args.model
     if bool(args.resume) == bool(args.brief and what_a_new_one_needs):
         parser.error("for a new delegate pass --brief with --model, or --brief with --agent codex and --effort; "
                      "for an existing one pass --resume <session id>")
@@ -94,7 +97,7 @@ def main() -> int:
         if runs_codex and not args.effort:
             raise CheckError(f"session {args.resume} is a Codex session: pass its --effort, from its backlog handle")
         if args.resume and args.effort and not runs_codex:
-            raise CheckError(f"session {args.resume} is a Claude Code session, which takes no --effort")
+            raise CheckError(f"session {args.resume} is a Claude Code session, which keeps the effort it has")
         if runs_codex:
             fleet.require_codex_trust(cwd)
         if not coordinator.get("space"):
@@ -116,7 +119,9 @@ def main() -> int:
             program = fleet.codex_program(args.effort, session=session, first_message=first_message)
         else:
             session = args.resume or str(uuid.uuid4())
-            how_it_starts = ["--resume", session] if args.resume else ["--model", args.model, "--session-id", session, first_message]
+            effort_flags = ["--effort", args.effort] if args.effort else []
+            how_it_starts = (["--resume", session] if args.resume
+                             else ["--model", args.model, *effort_flags, "--session-id", session, first_message])
             program = [fleet.CLAUDE, *fleet.DELEGATE_FLAGS, "--name", tab_label, *how_it_starts]
         launched_at = time.time()
         terminal = fleet.launch(
@@ -141,10 +146,11 @@ def main() -> int:
     address = terminal["address"]
     _, branch, commit, _ = fleet.repo_of(cwd, {})
     started = dt.datetime.now(dt.timezone.utc).strftime("%m-%d %H:%MZ")
+    model_and_effort = " ".join(filter(None, [args.model, args.effort]))
     print(f"started {args.name} as terminal {address}, tab \"{tab_label}\". Backlog handle:")
     print(f"  - {args.name} | {address} | \"{tab_label}\" | {cwd} | {branch or commit or 'no repo'} | {session} | "
           + (f"codex {args.effort}; " if runs_codex else "")
-          + (f"resumed {started}" if args.resume else f"{'' if runs_codex else args.model + '; '}started {started}; brief {brief}"))
+          + (f"resumed {started}" if args.resume else f"{'' if runs_codex else model_and_effort + '; '}started {started}; brief {brief}"))
     if args.resume:
         print(f"Nothing was sent. Send it the work with:\n"
               f"  {fleet.SCRIPTS}/delegate_cap.py --to {args.name} && hc send {args.name} \"<what arrived>\"")

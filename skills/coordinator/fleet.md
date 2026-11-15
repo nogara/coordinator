@@ -40,7 +40,7 @@ under the limit. `--to` is never refused by a limit.
    A domain with no repo skips this; the delegate's folder is the domain's.
 2. Brief: write it from brief.md into the worktree's `.scratch/BRIEF.md`.
 3. Start it:
-   `<scripts>/delegate_start.py <name> --task "<task>" --cwd <worktree> --brief <brief path> --model <sonnet|opus>`.
+   `<scripts>/delegate_start.py <name> --task "<task>" --cwd <worktree> --brief <brief path> --model <sonnet|opus|fable> [--effort <low|medium|high|xhigh|max>]`.
    It runs the cap check, starts Claude Code in a new terminal named
    `<name>` with the brief as its first message, and opens the tab
    "<domain> [<task>]". The terminal is your child, so the app lists the
@@ -50,7 +50,9 @@ under the limit. `--to` is never refused by a limit.
    needs one. Pick the model from the brief: `sonnet` for PR review replies
    and other small work that posts text for people; `opus` for design,
    debugging and new features, and when unsure. Small work that posts
-   nothing can go to Codex, as "A Codex delegate" below says. Every delegate
+   nothing can go to Codex, as "A Codex delegate" below says. Pass `fable`
+   or `--effort` only when the user names them: without `--effort` the
+   delegate runs at the effort in their Claude Code settings. Every delegate
    also gets the config's `delegate_claude_args`, such as
    `["--autocompact", "300000"]` to compact earlier and keep each response
    cheaper.
