@@ -302,11 +302,12 @@ these steps, then reply with the line the ask names, "ready for /clear" or
    with its options. Add no section for the handoff. Commit the backlog
    when Git tracks it.
 3. Stop the fleet watcher, each monitor, each scheduled check-in, and each
-   background task or subagent.
+   background task or subagent. A watcher-check line that arrives after you
+   reply ready needs no action.
 
 After `/coordinator <domain>`, run Start, raise each `Ask:` sentence in
-Open again, and arm the fleet watcher. The five-ask cap counts
-them with any new asks: raise the five most consequential, and keep the
+Open again, and each ask an earlier version marked "open before restart",
+and arm the fleet watcher. The five-ask cap counts them with any new asks: raise the five most consequential, and keep the
 rest in the backlog until one is answered.
 
 ## Compound
