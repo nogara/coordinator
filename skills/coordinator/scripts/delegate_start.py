@@ -158,7 +158,7 @@ def main() -> int:
               f"  {fleet.SCRIPTS}/delegate_cap.py --to {args.name} --send \"<what arrived>\"")
     if not terminal["tab_named"]:
         print(f"The app did not name the tab. Name it with: herdr-app do tab.rename "
-              f"'{json.dumps(dict(id=terminal['labels']['herdr.tab'], name=tab_label))}'")
+              f"'{json.dumps(dict(id=fleet.app_tab_id(terminal['labels']['herdr.tab']), name=tab_label))}'")
     return 0
 
 

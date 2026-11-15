@@ -11,5 +11,6 @@
   "trim_by_delegate_over_kb": 150,
   "user_names": ["Sam"],
   "open_ask_patterns": ["waits on Sam\\b"],
-  "check_for_updates": false
+  "check_for_updates": false,
+  "herdr_machine": null
 }

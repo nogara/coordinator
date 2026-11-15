@@ -67,6 +67,8 @@ CODEX_EFFORTS = ("low", "medium", "high", "xhigh")
 HC_NOT_FOUND = 3
 DELEGATE_FLAGS = [str(arg) for arg in CONFIG["delegate_claude_args"]]
 DELEGATE_CODEX_OVERRIDES = [str(override) for override in CONFIG["delegate_codex_overrides"]]
+# The name the Herdr app gives this machine, when the app runs on another one.
+HERDR_MACHINE = CONFIG["herdr_machine"]
 TERMINAL_NAME = re.compile(r"[a-z0-9_-]{1,32}")
 SECONDS_TO_WAIT_FOR_TAB = 15
 SECONDS_TO_WAIT_FOR_AGENT = 60
@@ -431,6 +433,15 @@ def name_tab(tab: str, tab_label: str) -> bool:
             return True
         time.sleep(0.5)
     return False
+
+
+def app_tab_id(tab: str) -> str:
+    """A tab id as `herdr-app` takes it on the machine that runs the app.
+
+    With herdr_machine set, this machine's tabs show in an app on another
+    machine, which prefixes their ids with that name, as in `devvm-fis/tb...`.
+    """
+    return f"{HERDR_MACHINE}/{tab}" if HERDR_MACHINE else tab
 
 
 def end_terminal(address: str) -> None:

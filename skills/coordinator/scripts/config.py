@@ -27,6 +27,7 @@ DEFAULTS = {
     "user_names": [],
     "open_ask_patterns": [],
     "check_for_updates": True,
+    "herdr_machine": None,
 }
 
 
