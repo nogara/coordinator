@@ -83,10 +83,10 @@ They never end the watch on their own:
                                  you ended with delegate_end.py. Run the
                                  command to give it the work.
   rule · <text>                  a standing rule and its command: the limit
-                                 on open PRs once it is reached, delegates
+                                 on open PRs once reached, delegates
                                  quiet for over a day, a backlog over its
                                  size limit, and an update to these skills,
-                                 checked once a day. Follow each.
+                                 checked at most daily. Follow each.
 
 A delegate ended with delegate_end.py prints no `gone` and no `no agent`.
 

@@ -90,9 +90,9 @@ git clone https://github.com/petekp/coordinator.git ~/src/coordinator
 `install.sh` links both skills into `~/.claude/skills`, where Claude Code
 finds them, and `~/.agents/skills`, where Codex finds them. It then checks
 for the tools above. Keep the clone where it is: the links point into it.
-To update, run `git pull` in the clone. Once a day the fleet watcher checks
-whether the clone is behind its upstream, and the coordinator tells you
-when it is. It never pulls by itself. To uninstall, run
+To update, run `git pull` in the clone. At its first wake-up each day, the
+fleet watcher checks whether the clone is behind its upstream, and the
+coordinator tells you when it is. It never pulls by itself. To uninstall, run
 `~/src/coordinator/install.sh --remove`, then delete the clone.
 
 ## Configure
@@ -116,7 +116,7 @@ defaults. `COORDINATOR_CONFIG` can name another file.
 | `trim_by_delegate_over_kb` | above this many kilobytes outside Done, about 37,000 tokens at 150, the coordinator has a delegate trim the backlog instead of reading it whole | 150 |
 | `user_names` | regular expressions for your name, so the backlog check also finds your words quoted after it, as in `Sam said "..."` | none |
 | `open_ask_patterns` | regular expressions, matched ignoring case, for other ways your backlogs mark an open ask | none |
-| `check_for_updates` | whether the fleet watcher checks once a day that the clone is up to date with its upstream | `true` |
+| `check_for_updates` | whether the fleet watcher checks, at its first wake-up each day, that the clone is up to date with its upstream | `true` |
 
 Put `backlog_dir` inside a Git repo if you want the coordinator to commit
 each backlog change.
