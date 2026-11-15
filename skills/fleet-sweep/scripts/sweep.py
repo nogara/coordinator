@@ -4,10 +4,17 @@
   sweep.py report <repo>... [--base BRANCH]... [--keep PATH]... [--no-sizes]
   sweep.py remove <worktree> [--base BRANCH]... [--discard-untracked] [--park]
   sweep.py prune-branches <repo> (--list | <branch>...) [--base BRANCH]...
+  sweep.py prune-ended [--list]
 
 report prints one verdict per item: SAFE (remove it now), CLOSE (the task
 looks finished but a session still runs there), ASK (finished-looking work
-that would be lost), KEEP (in use). It changes nothing.
+that would be lost), KEEP (in use). It changes nothing. It also counts the
+records of ended delegates whose PR merged or closed or whose worktree is
+gone.
+
+prune-ended removes those records from the coordinator's <state_dir>/ended
+and prints each one's name, domain, program and session id. --list prints
+them and removes nothing.
 
 remove re-checks one worktree, moves its ignored files other than build output
 to <main checkout>/.scratch/parked/<worktree name>, removes the worktree and
@@ -26,7 +33,9 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+from ended import ended_record_rows, prune_ended
 from parking import park_ignored, split_build_output, unpark
+from prs import branch_prs, is_ancestor, pr_summary, pull_requests, run
 
 APP_WORKTREE_ROOTS = (
     os.path.expanduser("~/.codex/worktrees/"),
@@ -37,14 +46,6 @@ SELF_EXITING = {"caffeinate"}
 SCRATCH_STALE_DAYS = 7
 SCRATCH_LISTED_MB = 100
 SIMULATOR_LISTED_MB = 500
-
-
-def run(*args, cwd=None):
-    try:
-        out = subprocess.run(args, capture_output=True, text=True, cwd=cwd)
-    except OSError:
-        return None
-    return out.stdout if out.returncode == 0 else None
 
 
 def git(repo, *args):
@@ -66,29 +67,6 @@ def worktrees(repo):
             for line in block.splitlines()
         )
         yield fields.get("worktree", ""), fields.get("branch", "").removeprefix("refs/heads/")
-
-
-def pull_requests(repo):
-    out = run(
-        "gh", "pr", "list", "--author", "@me", "--state", "all", "--limit", "500",
-        "--json", "headRefName,headRefOid,state,number,mergedAt", cwd=repo,
-    )
-    if out is None:
-        print(f"warning: gh pr list failed in {repo}, so worktrees whose PR merged show KEEP", file=sys.stderr)
-    prs = {}
-    for pr in json.loads(out) if out else []:
-        prs.setdefault(pr["headRefName"], []).append(pr)
-    return prs
-
-
-def pr_summary(prs):
-    if not prs:
-        return None, ""
-    states = {p["state"] for p in prs}
-    label = ",".join(f"#{p['number']} {p['state'].lower()}" for p in prs)
-    if "OPEN" in states:
-        return "OPEN", label
-    return ("MERGED" if "MERGED" in states else "CLOSED"), label
 
 
 HC_NOT_FOUND = 3
@@ -178,22 +156,6 @@ def dirty_files(worktree):
 def size_mb(path):
     out = run("du", "-sk", path)
     return int(out.split()[0]) // 1024 if out else 0
-
-
-def is_ancestor(repo, commit, descendant):
-    return subprocess.run(
-        ["git", "-C", repo, "merge-base", "--is-ancestor", commit, descendant],
-        capture_output=True,
-    ).returncode == 0
-
-
-def branch_prs(repo, branch, prs):
-    """A closed or merged PR speaks for the branch only when the branch holds
-    nothing past that PR's head, so a reused branch name does not inherit it."""
-    return [
-        p for p in prs.get(branch, [])
-        if p["state"] == "OPEN" or (p.get("headRefOid") and is_ancestor(repo, branch, p["headRefOid"]))
-    ]
 
 
 def never_committed(repo, branch):
@@ -358,6 +320,7 @@ def report(args):
         roots.add(os.path.realpath(os.path.join(os.path.dirname(repo), "worktrees")))
         roots.add(os.path.realpath(os.path.join(repo, ".scratch")))
     rows += orphan_process_rows(procs, roots)
+    rows += ended_record_rows()
     if args.simulators:
         rows += simulator_rows()
     order = {"SAFE": 0, "CLOSE": 1, "ASK": 2, "KEEP": 3}
@@ -515,8 +478,10 @@ def main():
     pru.add_argument("branches", nargs="*")
     pru.add_argument("--list", action="store_true")
     pru.add_argument("--base", action="append", default=[])
+    sub.add_parser("prune-ended").add_argument("--list", action="store_true")
     args = parser.parse_args()
-    return {"report": report, "remove": remove, "prune-branches": prune_branches}[args.command](args)
+    commands = {"report": report, "remove": remove, "prune-branches": prune_branches, "prune-ended": prune_ended}
+    return commands[args.command](args)
 
 
 if __name__ == "__main__":
