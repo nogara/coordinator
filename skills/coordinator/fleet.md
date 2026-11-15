@@ -17,18 +17,23 @@ sets, or by a session id in the backlog's Open section.
 ## Cap check
 
 `<scripts>/delegate_cap.py` lists your working delegates and ends with
-ALLOWED or REFUSED. `delegate_start.py` runs it for you. Run
-`delegate_cap.py --to <name>` yourself before every `hc send` to a
-delegate. Exit 1 means refused: queue the start or the message in the
+ALLOWED or REFUSED. `delegate_start.py` runs it for you. Message a
+delegate only with `delegate_cap.py --to <name> --send "<text>"`, which
+sends when the check allows it, and never with a bare `hc send`. Exit 1
+means refused and nothing was sent: queue the start or the message in the
 backlog, and send it when a delegate settles. Exit 2 means the check could
-not run; fix what it prints, such as a backlog with no `## Open` section,
-and run it again.
+not run, or with `--send` that the message was allowed and `hc send` did
+not deliver it: the output says NOT SENT and why. Fix what it prints, such
+as a backlog with no `## Open` section, and run it again. When the
+delegate's terminal is blocked on a dialog, the dialog is the user's: name
+the tab and do not send again.
 
 The same check holds the user's limits on open pull requests, set per repo
 as `pr_limits` in the config. At or over a limit, starting a delegate is
-refused. Pass `--for-pr <number>` for work on an open pull request. Pass `--user-asked` for work
-the user asked for themselves, and note in the backlog that it started over
-the limit. Everything else waits in the backlog queue until the count is
+refused. Pass `--for-pr <number>` for work on an open pull request. Pass
+`--user-asked "<their words>"`, only after the check refuses a start, for
+work the user asked for themselves, and note in the backlog that it started
+over the limit. Everything else waits in the backlog queue until the count is
 under the limit. `--to` is never refused by a limit.
 
 ## Start a delegate
@@ -46,8 +51,8 @@ under the limit. `--to` is never refused by a limit.
    "<domain> [<task>]". The terminal is your child, so the app lists the
    delegate under you, and it keeps running when your session ends. When Git
    does not ignore `.scratch/` in the worktree, it adds it to the repo's
-   `info/exclude`. Pass `--for-pr` or `--user-asked` here when the cap check
-   needs one. Pick the model from the brief: `sonnet` for PR review replies
+   `info/exclude`. Pass `--for-pr` or `--user-asked "<their words>"` here
+   when the cap check needs one. Pick the model from the brief: `sonnet` for PR review replies
    and other small work that posts text for people; `opus` for design,
    debugging and new features, and when unsure. Small work that posts
    nothing can go to Codex, as "A Codex delegate" below says. Pass `fable`
@@ -146,15 +151,16 @@ Pick the agent and the effort from the brief, as you pick the model:
 
 ## Unblock and recover
 
-- A question you may answer: cap check with `--to <name>`, then
-  `hc send <name> "<answer>"`. `hc send` waits for a draft the user is
-  typing there, and refuses a blocked terminal.
-- Gone, missing from `hc ls` after a crash or a closed tab: start the same
+- A question you may answer:
+  `delegate_cap.py --to <name> --send "<answer>"`. The send waits for a
+  draft the user is typing there, and refuses a blocked terminal.
+- Gone, missing from `hc ls` after a crash or a closed tab, and not one you
+  closed yourself: start the same
   session again with
   `<scripts>/delegate_start.py <name> --task "<task>" --cwd <worktree> --resume <session id>`,
   taking each value from the backlog handle. For a Codex delegate add
   `--effort <effort>`, also from the handle. Then send "Continue from your
-  brief." After two failed starts, stop and bring the user the terminal
+  brief." with `delegate_cap.py --to <name> --send`. After two failed starts, stop and bring the user the terminal
   text.
 - Drifting: handle it as SKILL.md says. When it is mid-change, stop its
   turn first with `hc interrupt <name>`.
@@ -185,8 +191,8 @@ delegates ended.
 
 `delegate_end.py --resume <name>` starts the same session in a new terminal
 and tab with the same name and label. The watcher prints that command beside
-an event for an ended delegate's PR. Then send the delegate what arrived,
-after the cap check with `--to <name>`. Its terminal address is new: update
+an event for an ended delegate's PR. Then send the delegate what arrived
+with `delegate_cap.py --to <name> --send "<text>"`. Its terminal address is new: update
 the backlog handle.
 
 ## A second coordinator

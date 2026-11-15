@@ -187,7 +187,7 @@ def resume(herd: fleet.Fleet, domain: str, name: str) -> int:
                          f"Remove a finished terminal with `hc rm {terminal['address']}` before trying again")
     path.unlink()
     print(f"resumed {name} as terminal {terminal['address']}, tab \"{tab_label}\". Send it the work with:\n"
-          f"  {fleet.SCRIPTS}/delegate_cap.py --to {name} && hc send {name} \"<what arrived>\"")
+          f"  {fleet.SCRIPTS}/delegate_cap.py --to {name} --send \"<what arrived>\"")
     return 0
 
 

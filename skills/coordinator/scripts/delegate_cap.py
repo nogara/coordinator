@@ -3,12 +3,14 @@
 Refuse a coordinator's fourth working delegate, and new work that would open
 a pull request while its repo is at the limit on open ones.
 
-A coordinator runs this before starting a delegate and before sending a
-delegate new work or an answer. It exits 0 when the step may go ahead and 1
-when it must wait in the backlog queue.
+A coordinator runs this before starting a delegate, and sends a delegate
+new work or an answer through it with --send. It exits 0 when the step may
+go ahead and 1 when it must wait in the backlog queue.
 
   delegate_cap.py                       may I start another delegate?
   delegate_cap.py --to <agent>          may I send <agent> work or an answer?
+  delegate_cap.py --to <agent> --send "<text>"
+                                        send it, unless the check refuses
 
 Run it from the coordinator's terminal, or name the domain. A delegate is
 yours when its terminal carries fleet.domain=<your domain>, which
@@ -28,12 +30,15 @@ start is refused unless it opens no new pull request:
 
   --resuming <agent>    the start resumes that ended delegate
   --for-pr <number>     the delegate works on that open pull request
-  --user-asked          the user asked for this work; note in the backlog
-                        that it started over the limit
+  --user-asked "<their words>"
+                        the user asked for this work; note in the backlog
+                        that it started over the limit. Pass it only when
+                        the check refuses a start for the limit
 
 Each run is logged to <state_dir>/cap-checks.jsonl.
 
-Exit status: 0 allowed, 1 refused, 2 the check could not run.
+Exit status: 0 allowed, 1 refused, 2 the check could not run. With --send,
+an allowed message that `hc send` then fails to deliver exits with 2.
 """
 
 from __future__ import annotations
@@ -41,6 +46,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -49,6 +55,7 @@ import fleet  # noqa: E402
 from fleet import CheckError  # noqa: E402
 
 CAP = 3
+SECONDS_TO_WAIT_FOR_A_SEND = 120
 LOG = fleet.STATE_DIR / "cap-checks.jsonl"
 
 
@@ -77,15 +84,46 @@ def pull_request_is_open(slug: str, number: int) -> bool:
     return out.strip() == "OPEN"
 
 
+def sent(to: str, text: str, entry: dict) -> int:
+    """Send the allowed message with `hc send`, print what it printed, and log whether it arrived."""
+    try:
+        send = subprocess.run(["hc", "send", "--json", "--", to, text], capture_output=True, text=True,
+                              timeout=SECONDS_TO_WAIT_FOR_A_SEND)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        print(f"delegate_cap: NOT SENT, hc send {to}: {error}", file=sys.stderr)
+        record(dict(entry, decision="allowed", sent=False))
+        return 2
+    print((send.stdout or send.stderr).strip())
+    record(dict(entry, decision="allowed", sent=send.returncode == 0))
+    if send.returncode != 0:
+        print(f"delegate_cap: NOT SENT, hc send {to} exited with {send.returncode}", file=sys.stderr)
+        return 2
+    return 0
+
+
+def allowed(entry: dict, to: dict | None, text: str | None) -> int:
+    """Log an allowed step, sending the text first when there is one."""
+    if text is None:
+        record(dict(entry, decision="allowed"))
+        return 0
+    return sent(to["address"], text, entry)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--domain", help="the coordinator's domain; default: the coordinator in this terminal")
     parser.add_argument("--to", metavar="AGENT", help="the delegate you are about to send work or an answer")
+    parser.add_argument("--send", metavar="TEXT", help="send this text to the --to delegate when the check allows it")
     parser.add_argument("--resuming", metavar="AGENT", help="the start resumes this ended delegate")
     parser.add_argument("--for-pr", metavar="NUMBER", type=int, help="the new delegate works on this open pull request")
-    parser.add_argument("--user-asked", action="store_true", help="the user asked for this work")
+    parser.add_argument("--user-asked", metavar="WORDS", nargs="?", const="(their words were not given)",
+                        help="the user asked for this work, in these words")
     parser.add_argument("--terminals", metavar="FILE", help="read a saved JSON list of `hc get` output instead of running hc")
     args = parser.parse_args()
+    if args.send is not None and not args.to:
+        parser.error("--send needs --to <agent>")
+    if args.send is not None and not args.send.strip():
+        parser.error("--send needs the text to send")
 
     try:
         herd = fleet.Fleet(args.terminals)
@@ -108,17 +146,16 @@ def main() -> int:
     target_is_working = target is not None and any(member["agent"] is target for member in working)
     if target_is_working:
         print(f"ALLOWED  {coordinator}: {count} of {CAP} working; {args.to} is already one of them")
-        record(dict(entry, decision="allowed"))
-        return 0
+        return allowed(entry, target, args.send)
     if count >= CAP:
         step = f"sending {args.to} work" if args.to else "starting a delegate"
-        print(f"REFUSED  {coordinator}: {count} of {CAP} working; queue {step} in the backlog until one settles")
+        not_sent = " NOT SENT." if args.send is not None else ""
+        print(f"REFUSED  {coordinator}: {count} of {CAP} working;{not_sent} queue {step} in the backlog until one settles")
         record(dict(entry, decision="refused: cap"))
         return 1
     if args.to or args.resuming:
         print(f"ALLOWED  {coordinator}: {count} of {CAP} working")
-        record(dict(entry, resuming=args.resuming, decision="allowed"))
-        return 0
+        return allowed(dict(entry, resuming=args.resuming), target, args.send)
 
     try:
         limited = sorted(herd.repos_of(domain) & set(fleet.PR_LIMITS)) if domain in herd.backlogs else []
@@ -139,7 +176,7 @@ def main() -> int:
         print(f"REFUSED  {coordinator}: start nothing that opens a pull request until the count is under the limit. "
               "Queue it in the backlog. To restart or resume a delegate you already have, pass --resuming <agent>. "
               "For work on an open pull request, pass --for-pr <number>. "
-              "For work the user asked for, pass --user-asked.")
+              "For work the user asked for, pass --user-asked \"<their words>\".")
         record(dict(entry, decision="refused: pull request limit"))
         return 1
     reason = ""

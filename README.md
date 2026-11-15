@@ -141,7 +141,7 @@ Each script's `--help` covers it in full.
 | Script | What it does |
 |---|---|
 | `delegate_start.py` | starts a delegate, or resumes one whose terminal is gone |
-| `delegate_cap.py` | allows or refuses a new delegate or a message to one |
+| `delegate_cap.py` | allows or refuses a new delegate, and sends a message to one when allowed |
 | `fleet_watch.py` | waits until something in the fleet needs the coordinator |
 | `fleet_status.py` | prints the fleet's state, grouped by who acts next |
 | `delegate_end.py` | ends a quiet delegate, and resumes it later |

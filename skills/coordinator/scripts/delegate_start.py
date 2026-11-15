@@ -27,7 +27,8 @@ A Codex delegate takes its model, sandbox and approvals from
 there, so a start in a repo it has not trusted is refused.
 
   --for-pr <number>   the delegate works on that open pull request
-  --user-asked        the user asked for this work
+  --user-asked "<their words>"
+                      the user asked for this work
 Both go to the cap check, for a repo at its limit on open pull requests.
 
 It prints the delegate's backlog handle. Write that line under the task in
@@ -68,7 +69,7 @@ def main() -> int:
                         help="for a new delegate, or a resumed Codex one. A Claude Code delegate without it runs at its settings' effort")
     parser.add_argument("--resume", metavar="SESSION", help="start this existing session again instead of a new one")
     parser.add_argument("--for-pr", metavar="NUMBER", type=int)
-    parser.add_argument("--user-asked", action="store_true")
+    parser.add_argument("--user-asked", metavar="WORDS", nargs="?", const="(their words were not given)")
     args = parser.parse_args()
     starts_codex = not args.resume and args.agent == fleet.CODEX
     what_a_new_one_needs = args.effort and not args.model if starts_codex else args.model
@@ -104,7 +105,7 @@ def main() -> int:
         if not coordinator.get("space"):
             raise CheckError(f"terminal {coordinator['address']} has no herdr.space label, so the new tab has no space to open in")
 
-        cap_flags = (["--for-pr", str(args.for_pr)] if args.for_pr is not None else []) + (["--user-asked"] if args.user_asked else [])
+        cap_flags = (["--for-pr", str(args.for_pr)] if args.for_pr is not None else []) + (["--user-asked", args.user_asked] if args.user_asked else [])
         if args.resume:
             cap_flags = ["--resuming", args.name]
         cap = subprocess.run([sys.executable, str(Path(__file__).with_name("delegate_cap.py")), *cap_flags],
@@ -154,7 +155,7 @@ def main() -> int:
           + (f"resumed {started}" if args.resume else f"{'' if runs_codex else model_and_effort + '; '}started {started}; brief {brief}"))
     if args.resume:
         print(f"Nothing was sent. Send it the work with:\n"
-              f"  {fleet.SCRIPTS}/delegate_cap.py --to {args.name} && hc send {args.name} \"<what arrived>\"")
+              f"  {fleet.SCRIPTS}/delegate_cap.py --to {args.name} --send \"<what arrived>\"")
     if not terminal["tab_named"]:
         print(f"The app did not name the tab. Name it with: herdr-app do tab.rename "
               f"'{json.dumps(dict(id=terminal['labels']['herdr.tab'], name=tab_label))}'")
