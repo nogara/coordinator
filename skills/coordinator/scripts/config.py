@@ -26,6 +26,7 @@ DEFAULTS = {
     "trim_by_delegate_over_kb": 150,
     "user_names": [],
     "open_ask_patterns": [],
+    "check_for_updates": True,
 }
 
 

@@ -112,32 +112,59 @@ Pick the agent and the effort from the brief, as you pick the model:
 ## Watch
 
 - One watcher for the whole fleet. Run it as a background command, with
-  Bash `run_in_background` and no trailing `&`, naming every delegate and
-  every open PR in the backlog's handles. To change the list, stop the
-  running watcher, then arm it again. A new watcher also stops any other on
-  the same state file, but that one's exit then wakes you with `stopped`:
+  Bash `run_in_background` and no trailing `&`. By default it names only
+  your domain:
 
   ```bash
-  <scripts>/fleet_watch.py --agent <name> --agent <name> --pr <repo path>#<number>
+  <scripts>/fleet_watch.py --domain <domain>
   ```
+
+  On each poll it finds your delegates, as the cap check does, and the open
+  PRs from your GitHub account that your backlog names, as
+  `fleet_status.py` does. A delegate you start is watched within 5 seconds
+  and a PR you write in the backlog within 90, with no re-arm. To leave a
+  delegate or PR out on purpose, such as a noisy PR, use the list form
+  instead. Name each delegate and PR to watch with
+  `--agent <name> --pr <repo path>#<number>`, each repeated, and leave out
+  `--domain`. To change a list-form watcher's list, stop it, then arm it
+  again. A new watcher also stops any other on the same state file, but
+  that one's exit then wakes you with `stopped`.
+
+  The first time you switch a watcher armed with a list to `--domain`, keep
+  the list on that one run, as in
+  `--domain <domain> --agent <name> --pr <repo path>#<number>`, so nothing
+  it watched loses an event. Without the list the watcher stops at once
+  with `old state`. If you no longer have the list, name the delegates and
+  PRs in your backlog's Open section, and drop any that `no agent` reports.
+  From the next run on, `--domain` alone remembers it.
 
   It polls herdr-core every 5 seconds and GitHub every 90, and exits once
   something needs you, printing one line per event. Its `--help` lists the
   lines. Urgent events wake you within 15 seconds of being seen: a new ask,
   a blocked, errored, gone or stuck delegate, a merged or closed PR, failed
   checks, requested changes, and a `--pr` that GitHub cannot find. Other
-  events wait until 10 minutes after the last wake-up. Handle every line,
-  then arm it again with the current handles. A line that starts `rule ·` is
-  a standing rule with its command: follow it. Ignore `alive` and `stopped`.
-  `owner gone`, `parent gone` and `blind` mean it lost sight of your
-  terminal, its shell, herdr-core or GitHub: arm it again, and tell the user
-  when `blind` repeats. `no agent <name>` means no live agent has that name:
-  correct the name, or drop a delegate that is gone, then arm it again. Its
-  state file, `<state_dir>/watch/<domain>.json`, holds the last snapshot, so
-  anything that changed while it was not running fires on re-arm. One
-  started with `&` cannot wake you, so it refuses to start and messages your
-  terminal. Wait with this watcher alone, with no `hc wait` per delegate, `sleep`
-  loop or scheduled check-in.
+  events wait until 10 minutes after the last wake-up.
+
+  With `--domain`, `due <date> · <text>` is one of the other events. It
+  means a list item in your backlog's Open section carries
+  `due: YYYY-MM-DD` and has reached its date. A list item starts with `-`,
+  `*`, `+` or a number followed by `.` or `)`. One checked off with `[x]`,
+  or under one, is skipped. It prints once for each date and item, so an
+  edit after the item's first 60 characters does not print it again.
+
+  Handle every line, then arm it again with the same command. A line that
+  starts `rule ·` is a standing rule with its command: follow it. Ignore
+  `alive` and `stopped`. `owner gone`, `parent gone` and `blind` mean it
+  lost sight of your terminal, its shell, herdr-core, your backlog or
+  GitHub: arm it again, and tell the user when `blind` repeats.
+  `no agent <name>` means no live agent has that name: correct the name, or
+  drop a delegate that is gone, then arm it again. `no backlog <domain>`
+  means `--domain` found no backlog with an Open section: fix the domain or
+  the backlog. Its state file, `<state_dir>/watch/<domain>.json`, holds the
+  last snapshot, so anything that changed while it was not running fires on
+  re-arm. One started with `&` cannot wake you, so it refuses to start and
+  messages your terminal. Wait with this watcher alone, with no `hc wait`
+  per delegate, `sleep` loop or scheduled check-in.
 - The fleet: `hc ls` lists every live terminal with its status, name and
   parent. `hc get <name>` adds one terminal's labels. With the inbox mod
   installed, `inbox.needs-you` is the count of items its inbox holds for the

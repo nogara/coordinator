@@ -155,8 +155,14 @@ starting a delegate:
 Done when the delegate is working and its backlog line has every handle.
 
 **Watch** instead of waiting: run the one fleet watcher from
-[fleet.md](fleet.md#watch), re-armed whenever a delegate or PR joins the
-fleet. When a delegate settles, read its `REPORT.md`. With the inbox mod
+[fleet.md](fleet.md#watch) with `--domain`. It picks up each delegate that
+joins the fleet, and each PR once the backlog names it, so write a PR's
+number in its open item when it opens. Mark a step due on a date with
+`due: YYYY-MM-DD` in its open item, and the watcher prints a `due` line on
+that date. Take the marker out once the step is done, or change the date.
+When the watcher prints a `rule ·` line saying these skills are behind
+their upstream, tell the user in your next reply, with the commands it
+gives. Never pull the update yourself. When a delegate settles, read its `REPORT.md`. With the inbox mod
 installed, also check its inbox: its own session can record questions
 there whatever the brief says, so an ask can sit there with no line in the
 report. Before each reply to the user, check each delegate's
@@ -223,8 +229,8 @@ Standing yes lists what the user decided for every later case, an approval,
 a limit or a refusal, each in their words with its date.
 
 An open item is its state now: what it touches, what is decided in the
-user's words, what is open with your recommendation, and the handle when
-delegated:
+user's words, what is open with your recommendation, any dated step still
+to come, marked `due: YYYY-MM-DD`, and the handle when delegated:
 
 - **Search: one query per keystroke.** Touches `src/search/query.ts`.
   Decided: drop the debounce (03-14: "Drop it"). Ask: keep the old
