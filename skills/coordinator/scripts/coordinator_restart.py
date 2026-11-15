@@ -77,8 +77,9 @@ def ask_text(reason: str) -> str:
     return (
         f"From coordinator_restart.py, {stamp}: the user asked for this coordinator to restart. {reason} "
         "This session will exit and a new one will start in this terminal. Take the Restart steps in your coordinator "
-        "skill now: close each inbox question the backlog already answers, write every open item, every delegate "
-        "handle and every open inbox question with its options into your backlog and commit it, then stop your "
+        "skill now: close each inbox question the backlog already answers, bring your backlog's Open section up to "
+        "date in place, with every delegate handle and every open ask as an Ask: sentence with its options, add no "
+        "new section, and commit it when Git tracks it, then stop your "
         f"fleet watcher, monitors and background tasks. Start nothing new. When that is done, reply with the single "
         f"line \"{READY}\"."
     )

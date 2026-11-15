@@ -12,8 +12,7 @@ A coordinator is the agent whose terminal carries the labels
 fleet.role=coordinator and fleet.domain=<domain>. Its backlog is
 <backlog_dir>/<domain>-backlog.md.
 
-The user's settings are in ~/.config/coordinator/config.json, or the file
-COORDINATOR_CONFIG names. Every key is optional; DEFAULTS lists them.
+The user's settings come from config.py.
 
 A delegate belongs to a domain when its terminal carries
 fleet.domain=<domain>, or carries no fleet.domain label and the backlog's
@@ -38,47 +37,13 @@ import os
 import pwd
 import re
 import subprocess
-import sys
 import time
 import uuid
 from pathlib import Path
 
+from config import CONFIG, CONFIG_FILE
+
 HOME = Path.home()
-CONFIG_FILE = Path(os.environ.get("COORDINATOR_CONFIG") or HOME / ".config" / "coordinator" / "config.json").expanduser()
-DEFAULTS = {
-    "backlog_dir": "~/.config/coordinator/backlogs",
-    "state_dir": "~/.local/state/coordinator",
-    "pr_limits": {},
-    "keep_running": [],
-    "delegate_claude_args": [],
-    "delegate_codex_overrides": [],
-    "inbox_store": None,
-}
-
-
-def load_config(path: Path = CONFIG_FILE) -> dict:
-    """The user's settings over DEFAULTS. A missing file means every default."""
-    try:
-        saved = json.loads(path.read_text()) if path.is_file() else {}
-    except (OSError, json.JSONDecodeError) as error:
-        raise ValueError(f"cannot read {path}: {error}")
-    if not isinstance(saved, dict):
-        raise ValueError(f"{path} holds no JSON object")
-    unknown = sorted(set(saved) - set(DEFAULTS))
-    if unknown:
-        raise ValueError(f"{path} has unknown keys: {', '.join(unknown)}. Known keys: {', '.join(DEFAULTS)}")
-    for key, value in saved.items():
-        if DEFAULTS[key] is not None and value is not None and type(value) is not type(DEFAULTS[key]):
-            raise ValueError(f"{path}: {key} must be a JSON {type(DEFAULTS[key]).__name__}")
-    return {**DEFAULTS, **saved}
-
-
-try:
-    CONFIG = load_config()
-except ValueError as config_error:
-    print(f"coordinator config: {config_error}", file=sys.stderr)
-    sys.exit(2)
-
 BACKLOG_DIR = Path(CONFIG["backlog_dir"]).expanduser()
 BRIEFS_DIR = BACKLOG_DIR / "briefs"
 STATE_DIR = Path(CONFIG["state_dir"]).expanduser()
@@ -331,8 +296,8 @@ def names_pull_request(text: str, slug: str, number: int, needs_link: bool) -> b
 class Fleet:
     """The live agents and the backlogs, read once."""
 
-    def __init__(self, terminals_file: str | None = None):
-        self.agents = load_agents(terminals_file)
+    def __init__(self, terminals_file: str | None = None, agents: list[dict] | None = None):
+        self.agents = agents if agents is not None else load_agents(terminals_file)
         self.backlogs = {p.name.removesuffix("-backlog.md"): p for p in sorted(BACKLOG_DIR.glob("*-backlog.md"))}
         self.checkouts: dict[str, tuple] = {}
 
@@ -661,6 +626,24 @@ def ended_records(domain: str | None = None) -> list[dict]:
 
 def ended_record_path(session_id: str) -> Path:
     return ENDED_DIR / f"{session_id}.json"
+
+
+OPEN_PULL_REQUEST_NUMBERS = """query($q: String!, $cursor: String) {
+  search(query: $q, type: ISSUE, first: 100, after: $cursor) {
+    pageInfo { hasNextPage endCursor } nodes { ... on PullRequest { number } } } }"""
+
+
+def open_pull_request_numbers(slug: str) -> list[int]:
+    """The numbers of the repo's open pull requests from the signed-in GitHub account."""
+    numbers, cursor = [], None
+    while True:
+        command = ["gh", "api", "graphql", "-f", f"query={OPEN_PULL_REQUEST_NUMBERS}",
+                   "-f", f"q=repo:{slug} is:pr is:open author:@me"]
+        page = json.loads(run(command + (["-f", f"cursor={cursor}"] if cursor else [])))["data"]["search"]
+        numbers += [node["number"] for node in page["nodes"] if node]
+        if not page["pageInfo"]["hasNextPage"]:
+            return numbers
+        cursor = page["pageInfo"]["endCursor"]
 
 
 def open_pull_request_count(slug: str) -> int:

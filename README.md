@@ -109,6 +109,11 @@ defaults. `COORDINATOR_CONFIG` can name another file.
 | `delegate_claude_args` | extra Claude Code arguments for every delegate, such as `["--autocompact", "300000"]` | none |
 | `delegate_codex_overrides` | extra Codex `-c` settings for every Codex delegate | none |
 | `inbox_store` | the inbox's saved state, needed only when more than one exists | found on its own |
+| `backlog_limit_kb` | most kilobytes of a backlog outside its Done section, which the coordinator reads at each start; 40 KB is about 10,000 tokens | 40 |
+| `done_limit_kb` | most kilobytes of a backlog's Done section | 20 |
+| `trim_by_delegate_over_kb` | above this many kilobytes outside Done, about 37,000 tokens at 150, the coordinator has a delegate trim the backlog instead of reading it whole | 150 |
+| `user_names` | regular expressions for your name, so the backlog check also finds your words quoted after it, as in `Sam said "..."` | none |
+| `open_ask_patterns` | regular expressions, matched ignoring case, for other ways your backlogs mark an open ask | none |
 
 Put `backlog_dir` inside a Git repo if you want the coordinator to commit
 each backlog change.
@@ -144,6 +149,7 @@ Each script's `--help` covers it in full.
 | `delegate_cap.py` | allows or refuses a new delegate, and sends a message to one when allowed |
 | `fleet_watch.py` | waits until something in the fleet needs the coordinator |
 | `fleet_status.py` | prints the fleet's state, grouped by who acts next |
+| `backlog_check.py` | prints a backlog's size, and lists what a trim dropped that it must put back |
 | `delegate_end.py` | ends a quiet delegate, and resumes it later |
 | `coordinator_restart.py` | starts, restarts and stops coordinators |
 | `sweep.py` (fleet-sweep) | reports leftovers and removes the safe ones |

@@ -15,7 +15,7 @@ for the next item. Your memory is the domain's **backlog** file.
 The scripts this skill names are in its `scripts/` folder. Run them by full
 path, from the skill's base directory. Settings come from
 `~/.config/coordinator/config.json`, or the file `COORDINATOR_CONFIG` names;
-`scripts/fleet.py` lists the keys and their defaults. `<backlog_dir>` and `<state_dir>` below are its folders.
+`scripts/config.py` lists the keys and their defaults. `<backlog_dir>` and `<state_dir>` below are its folders.
 
 ## Start
 
@@ -216,23 +216,43 @@ re-brief it, then verify the revert yourself.
 
 ## Backlog
 
-`## Boundary`, then `## Standing yes`, then `## Open`, then `## Done`.
-Standing yes lists what the user approved for every later case, each line in
-their words with its date and limits. An open item names what it touches,
-what is decided in the user's words, what is open with your recommendation,
-and the handle when delegated:
+`## Boundary`, then `## Standing yes`, then `## Open`, then `## Done`, and
+no other section. You read everything outside Done at each start and after
+each compaction, so it holds only what still governs or still needs work.
+Standing yes lists what the user decided for every later case, an approval,
+a limit or a refusal, each in their words with its date.
+
+An open item is its state now: what it touches, what is decided in the
+user's words, what is open with your recommendation, and the handle when
+delegated:
 
 - **Search: one query per keystroke.** Touches `src/search/query.ts`.
-  Decided: drop the debounce (03-14: "Drop it"). Delegated: terminal
-  `search-query` (t24), tab "app [search query]", worktree
-  `~/src/worktrees/app/search-query` on branch `search-query`, brief
-  `.scratch/BRIEF.md`, session `a1b2c3d4`. Stops before merge.
+  Decided: drop the debounce (03-14: "Drop it"). Ask: keep the old
+  endpoint for a release, or remove it now? I recommend keeping it, so
+  older clients still work. Delegated: terminal `search-query` (t24), tab
+  "app [search query]", worktree `~/src/worktrees/app/search-query` on
+  branch `search-query`, brief `.scratch/BRIEF.md`, session `a1b2c3d4`.
+  Stops before merge.
 
-A done item carries the date, what changed and what it touched. Update the
+Write the user's words as a quote after its date, as in
+`(03-14: "Drop it")`. Write each open ask as a sentence that starts
+`Ask:`, followed by its options and your recommendation. The backlog check
+finds both by these forms, so a trim cannot drop them unnoticed.
+
+When an item's state changes, replace its text instead of adding a dated
+note under it. When it finishes, take it out of Open and add one line for
+it to Done: the date, what changed, its PR or commit, and any hash or
+parked path the sweep printed. First move any decision of the user's that
+governs later work to Standing yes, so nobody asks them again. Update the
 file in the turn a state changes: it is what survives compaction and a
-restart. When `<backlog_dir>` is in a Git repo that does not ignore it, commit the backlog there by
-file name, with `git commit --only <backlog path>`, so other sessions'
-staged work stays out and every state has history.
+restart. When `<backlog_dir>` is in a Git repo that does not ignore it,
+commit the backlog there by file name, with
+`git commit --only <backlog path>`, so other sessions' staged work stays
+out. Each commit keeps the earlier text, so the file does not repeat an
+item's history.
+
+When the fleet watcher prints a `rule ·` line about your backlog's size,
+trim it as [backlog-trim.md](backlog-trim.md) says.
 
 ## Restart
 
@@ -251,14 +271,15 @@ these steps, then reply with the line the ask names, "ready for /clear" or
 
 1. Close each open ask whose answer the backlog already records, citing that
    line.
-2. Write every open item, every delegate handle and every open ask with its
-   options into the backlog. Mark each of those asks "open before restart".
-   Commit the backlog.
+2. Bring the backlog's Open section up to date in place: each open item's
+   state, each delegate's handle, and each open ask as an `Ask:` sentence
+   with its options. Add no section for the handoff. Commit the backlog
+   when Git tracks it.
 3. Stop the fleet watcher, each monitor, each scheduled check-in, and each
    background task or subagent.
 
-After `/coordinator <domain>`, run Start, raise the asks marked "open
-before restart" again, and arm the fleet watcher. The five-ask cap counts
+After `/coordinator <domain>`, run Start, raise each `Ask:` sentence in
+Open again, and arm the fleet watcher. The five-ask cap counts
 them with any new asks: raise the five most consequential, and keep the
 rest in the backlog until one is answered.
 
