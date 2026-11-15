@@ -32,7 +32,10 @@ def backlog_to_read_again(domain: str) -> str:
 
 def watcher_line(domain: str) -> str:
     state = fleet.WATCH_DIR / f"{domain}.json"
-    pid = watcher_running(state)
+    try:
+        pid = watcher_running(state)
+    except fleet.CheckError as error:
+        return f"Whether a fleet watcher runs for {domain} could not be checked: {error}."
     if pid:
         return f"A fleet watcher runs for {domain}, pid {pid}."
     return (f"No fleet watcher runs for {domain} on {state}. Arm it as the Watch section of "

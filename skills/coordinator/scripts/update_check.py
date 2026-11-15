@@ -8,11 +8,13 @@ branch and counts the commits the clone lacks. It saves the day and the
 count in the state folder, shared by every coordinator's watcher, and gives
 the line once for each new count. It never pulls. It gives nothing when
 check_for_updates is false in the config, when the scripts are not in a
-clone, when the branch has no upstream, or when the fetch fails.
+clone of the coordinator repo, when the branch has no upstream, or when
+the fetch fails. A lock keeps watchers that wake together to one fetch.
 """
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import subprocess
@@ -22,7 +24,11 @@ import fleet
 from fleet import CONFIG
 
 UPDATE_CHECK_FILE = fleet.STATE_DIR / "update-check.json"
+UPDATE_CHECK_LOCK = fleet.STATE_DIR / "update-check.lock"
 FETCH_SECONDS = 15
+# Files a clone of the coordinator repo tracks at these paths. A user's own repo that holds a copy of the skills
+# does not track all three. Keep this list in step with the repo's layout.
+COORDINATOR_REPO_FILES = ("install.sh", "config.example.json", "skills/coordinator/scripts/update_check.py")
 
 
 def git(clone: str, *args: str) -> str | None:
@@ -37,7 +43,9 @@ def git(clone: str, *args: str) -> str | None:
 def commits_behind() -> tuple[str, int] | None:
     """The clone's folder and how many upstream commits it lacks, or None when that cannot be told."""
     clone = git(fleet.SCRIPTS, "rev-parse", "--show-toplevel")
-    if not clone or git(clone, "rev-parse", "--abbrev-ref", "@{upstream}") is None:
+    if not clone or git(clone, "ls-files", "--error-unmatch", *COORDINATOR_REPO_FILES) is None:
+        return None
+    if git(clone, "rev-parse", "--abbrev-ref", "@{upstream}") is None:
         return None
     if git(clone, "fetch", "--quiet") is None:
         return None
@@ -49,6 +57,13 @@ def update_line(today: str) -> str | None:
     """A `rule ·` line when the clone is behind by a count no watcher has given yet."""
     if not CONFIG["check_for_updates"]:
         return None
+    UPDATE_CHECK_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(UPDATE_CHECK_LOCK, "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        return checked_line(today)
+
+
+def checked_line(today: str) -> str | None:
     try:
         saved = json.loads(UPDATE_CHECK_FILE.read_text())
     except (OSError, json.JSONDecodeError):
@@ -69,7 +84,6 @@ def update_line(today: str) -> str | None:
         line = (f"rule · the coordinator skills are {behind} commit{'s' if behind != 1 else ''} behind their "
                 f"upstream · tell the user in your next reply. To update, they run `git pull` in "
                 f"{saved.get('clone')}, then restart each coordinator")
-    UPDATE_CHECK_FILE.parent.mkdir(parents=True, exist_ok=True)
     temporary = Path(f"{UPDATE_CHECK_FILE}.tmp")
     temporary.write_text(json.dumps(saved))
     os.replace(temporary, UPDATE_CHECK_FILE)
