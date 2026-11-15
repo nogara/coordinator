@@ -6,6 +6,8 @@ it exits. watcher_running reads that pid and confirms with ps that the
 process is still a fleet watcher. Nothing else should take the lock to test
 it: a watcher that starts stops the process holding the lock.
 """
+from __future__ import annotations
+
 import fcntl
 import os
 import signal

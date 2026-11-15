@@ -86,6 +86,54 @@ stop, so add nothing else:
 
 `config.example.json` in the clone lists every key.
 
+Then ask whether they want the watcher check, and install it only on a yes.
+A coordinator arms its fleet watcher again only when something wakes it,
+so after a usage limit or a restart of Claude Code nothing may watch its
+delegates. `scripts/watcher_check.py --send` runs outside every session,
+finds each coordinator with work and no watcher, and sends it one line
+asking it to arm the watcher again. It runs every ten minutes from a
+scheduler. In both examples below, replace `/Users/you` with their home
+folder and adjust `PATH` so it finds `hc`, `gh` and `python3`. Both write
+errors to `~/.local/state/coordinator`, so create that folder first.
+
+On macOS, write `~/Library/LaunchAgents/coordinator.watcher-check.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>coordinator.watcher-check</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string>/Users/you/src/coordinator/skills/coordinator/scripts/watcher_check.py</string>
+    <string>--send</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>/Users/you/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>StartInterval</key><integer>600</integer>
+  <key>StandardErrorPath</key><string>/Users/you/.local/state/coordinator/watcher-check.err</string>
+</dict>
+</plist>
+```
+
+Load it with
+`launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/coordinator.watcher-check.plist`.
+To remove it, run
+`launchctl bootout gui/$(id -u)/coordinator.watcher-check`, then delete the
+file.
+
+On Linux, add this line with `crontab -e`:
+
+```
+*/10 * * * * PATH=/home/you/.local/bin:/usr/local/bin:/usr/bin:/bin python3 /home/you/src/coordinator/skills/coordinator/scripts/watcher_check.py --send >> /home/you/.local/state/coordinator/watcher-check.err 2>&1
+```
+
+Each run logs what it found to `<state_dir>/watcher-check.jsonl`.
+
 ## 4. The Inbox plugin
 
 Skip when `claude plugin list` shows `inbox`. Otherwise:

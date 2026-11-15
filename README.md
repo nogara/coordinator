@@ -155,6 +155,7 @@ Each script's `--help` covers it in full.
 | `backlog_check.py` | prints a backlog's size, and lists what a trim dropped that it must put back |
 | `delegate_end.py` | ends a quiet delegate, and resumes it later |
 | `coordinator_restart.py` | starts, restarts and stops coordinators |
+| `watcher_check.py` | run by a scheduler, tells each coordinator with work and no fleet watcher to arm one; SETUP.md has examples |
 | `sweep.py` (fleet-sweep) | reports leftovers and removes the safe ones |
 
 ## Limits
