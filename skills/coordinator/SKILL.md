@@ -15,7 +15,8 @@ for the next item. Your memory is the domain's **backlog** file.
 The scripts this skill names are in its `scripts/` folder. Run them by full
 path, from the skill's base directory. Settings come from
 `~/.config/coordinator/config.json`, or the file `COORDINATOR_CONFIG` names;
-`scripts/config.py` lists the keys and their defaults. `<backlog_dir>` and `<state_dir>` below are its folders.
+`scripts/config.py` lists the keys and their defaults. `<backlog_dir>` and
+`<state_dir>` below are its folders.
 
 ## Start
 
@@ -130,10 +131,11 @@ recommendation. An ask to delete a shared resource names everything that
 uses it. With the inbox mod installed, record each ask there in the same
 turn. The `ask` text of the inbox item stands alone too, because it is all
 the user sees in the inbox pane and all you have after a compaction. It
-names the PR by number or the thing by its name. A task that sends the
-user to a tab gives the tab's label as Herdr shows it, with
+names the PR by number or the thing by its name. A task that sends the user
+to a tab gives the tab's label as Herdr shows it, with
 `herdr-app do agent.focus '{"terminal":"<address>"}'` as a step that takes
-them there. Batch asks: collect them while work runs and present them in the next
+them there.
+Batch asks: collect them while work runs and present them in the next
 reply, most consequential first, five at most; the rest wait in the
 backlog. An ask a delegate is blocked on goes into the reply at once.
 
@@ -172,20 +174,21 @@ Done when the delegate is working and its backlog line has every handle.
 joins the fleet, and each PR once the backlog names it, so write a PR's
 number in its open item when it opens. Mark a step due on a date with
 `due: YYYY-MM-DD` in its open item, and the watcher prints a `due` line on
-that date. Take the marker out once the step is done, or change the date.
-When the watcher prints a `rule ·` line saying these skills are behind
-their upstream, tell the user in your next reply, with the commands it
-gives. Never pull the update yourself. When a delegate settles, read its `REPORT.md`. With the inbox mod
-installed, also check its inbox: its own session can record questions
-there whatever the brief says, so an ask can sit there with no line in the
-report. Before each reply to the user, check each delegate's
-`inbox.needs-you` label, in `hc get <name>`, for an item you have not
-relayed. Handle each question as **A delegate's question is an ask** says.
-A permission prompt, including a folder trust prompt, is the user's to
-answer in that tab, so name the tab. Their "go ahead" covers the brief up to
-its stop points. Each stop point takes a fresh yes, unless this skill or
-Standing yes already approves that step, as with a push. Ask for it in the
-delegate's tab, where their yes and any permission dialog land together.
+that date. Take the marker out once the step is done, or change the date. When
+the watcher prints a `rule ·` line saying these skills are behind their
+upstream, tell the user in your next reply, with the commands it gives,
+and leave the pull to them. When a delegate settles, read its
+`REPORT.md`. With the inbox mod installed, also check its inbox: its own
+session can record questions there whatever the brief says, so an ask can
+sit there with no line in the report. Before each reply to the user, check
+each delegate's `inbox.needs-you` label, in `hc get <name>`, for an item
+you have not relayed. Handle each question as **A delegate's question is an
+ask** says. A permission prompt, including a folder trust prompt, is the
+user's to answer in that tab, so name the tab. Their "go ahead" covers the
+brief up to its stop points. Each stop point takes a fresh yes, unless this
+skill or Standing yes already approves that step, as with a push. Ask for
+it in the delegate's tab, where their yes and any permission dialog land
+together.
 
 **Verify** finished work before bringing it to the user: the diff stays
 inside the brief, the checks ran, shown by a log and its exit status, and no
@@ -196,9 +199,9 @@ recommending a fix, check that something uses the code it targets.
 
 Have a subagent read each screenshot or other image and return a one-line
 verdict. Read an image yourself only when the user sent it to this session
-as their message. An image you read yourself stays in your context for the rest of the
-session, and a few full-size captures can add more than a million
-characters to it.
+as their message. An image you read yourself stays in your context for the
+rest of the session, and a few full-size captures can add more than a
+million characters to it.
 
 **Clean up** with the fleet-sweep skill, without asking, in the turn a
 delegate's task finishes: the turn you merge its work, see it delivered

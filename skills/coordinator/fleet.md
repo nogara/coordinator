@@ -52,8 +52,8 @@ under the limit. `--to` is never refused by a limit.
    delegate under you, and it keeps running when your session ends. When Git
    does not ignore `.scratch/` in the worktree, it adds it to the repo's
    `info/exclude`. Pass `--for-pr` or `--user-asked "<their words>"` here
-   when the cap check needs one. Pick the model from the brief: `sonnet` for PR review replies
-   and other small work that posts text for people; `opus` for design,
+   when the cap check needs one. Pick the model from the brief: `sonnet`
+   for PR review replies and other small work that posts text for people; `opus` for design,
    debugging and new features, and when unsure. Small work that posts
    nothing can go to Codex, as "A Codex delegate" below says. Pass `fable`
    or `--effort` only when the user names them: without `--effort` the
@@ -218,8 +218,8 @@ delegates ended.
 `delegate_end.py --resume <name>` starts the same session in a new terminal
 and tab with the same name and label. The watcher prints that command beside
 an event for an ended delegate's PR. Then send the delegate what arrived
-with `delegate_cap.py --to <name> --send "<text>"`. Its terminal address is new: update
-the backlog handle.
+with `delegate_cap.py --to <name> --send "<text>"`. Its terminal address
+is new: update the backlog handle.
 
 ## A second coordinator
 

@@ -58,8 +58,8 @@ def parts_over_their_limit(text: str) -> list[str]:
 def what_to_do_when_over(text: str) -> str:
     """The instruction for a backlog over a limit: trim it, or have a delegate trim one too large to read."""
     if bytes_outside_done(text) > TRIMMED_BY_A_DELEGATE_OVER:
-        return ("Do not trim it yourself: reading it would fill your context. Start one delegate to trim it, "
-                f"as {TRIM_STEPS} says; read that file first.")
+        return (f"Start one delegate to trim it as {TRIM_STEPS} says, because reading it would fill your "
+                "context. Read that file first.")
     return f"Trim it as {TRIM_STEPS} says; read that file first."
 
 

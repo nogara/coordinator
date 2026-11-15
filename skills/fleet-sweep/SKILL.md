@@ -93,8 +93,9 @@ delegate, still opens its session.
    writes an ended record, so the fleet watcher prints no `gone` line for
    it. A watcher armed with a list of delegates is stopped and armed again
    without this one.
-3. Its session stays resumable with `claude --resume <session id>`. The
-   ended record goes with `sweep.py prune-ended` once the worktree is gone.
+3. Its session stays resumable with `claude --resume <session id>`.
+   `sweep.py prune-ended` removes its ended record once the worktree is
+   gone.
 4. Remove everything its `REPORT.md` lists under "Made outside the
    worktree": stop processes by PID or port, kill tmux sessions by name,
    close browser tabs, release virtual machines, delete simulators with

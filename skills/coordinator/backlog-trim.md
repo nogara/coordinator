@@ -50,10 +50,10 @@ remains, tell the user the size.
 
 ## A backlog too large to read
 
-Do not trim a backlog whose text outside Done is over 150 KB yourself,
-about 37,000 tokens, because reading it would fill your context. The
-config's `trim_by_delegate_over_kb` changes this size. Start one delegate
-for the trim, with these steps as its brief and the backlog file as its
+A delegate trims a backlog whose text outside Done is over 150 KB, about
+37,000 tokens, because reading it would fill your context. The config's
+`trim_by_delegate_over_kb` changes this size. Start one delegate for the
+trim, with these steps as its brief and the backlog file as its
 boundary. It reads the file section by section and checks what is live
 against `fleet_status.py`, the open PRs and `hc ls`. Then it sends you one
 list of "is this still open?" questions. It writes the trimmed text to a
