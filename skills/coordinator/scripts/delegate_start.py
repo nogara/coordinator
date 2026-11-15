@@ -49,6 +49,7 @@ import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import codex  # noqa: E402
 import fleet  # noqa: E402
 from fleet import CheckError  # noqa: E402
 
@@ -99,7 +100,7 @@ def main() -> int:
         if args.resume and args.effort and not runs_codex:
             raise CheckError(f"session {args.resume} is a Claude Code session, which keeps the effort it has")
         if runs_codex:
-            fleet.require_codex_trust(cwd)
+            codex.require_codex_trust(cwd)
         if not coordinator.get("space"):
             raise CheckError(f"terminal {coordinator['address']} has no herdr.space label, so the new tab has no space to open in")
 
@@ -116,7 +117,7 @@ def main() -> int:
         first_message = None if args.resume else f"Read {brief} and do what it says."
         if runs_codex:
             session = args.resume
-            program = fleet.codex_program(args.effort, session=session, first_message=first_message)
+            program = codex.codex_program(args.effort, session=session, first_message=first_message)
         else:
             session = args.resume or str(uuid.uuid4())
             effort_flags = ["--effort", args.effort] if args.effort else []
@@ -127,11 +128,11 @@ def main() -> int:
         terminal = fleet.launch(
             name=args.name, cwd=cwd, tab_label=tab_label, space=coordinator["space"],
             labels={"fleet.domain": domain, "fleet.task": args.task,
-                    **(fleet.codex_labels(args.effort, session) if runs_codex else {})},
+                    **(codex.codex_labels(args.effort, session) if runs_codex else {})},
             program=program, parent=coordinator["address"],
         )
         if runs_codex:
-            session = fleet.finish_codex_start(terminal, cwd, launched_at, session, first_message)
+            session = codex.finish_codex_start(terminal, cwd, launched_at, session, first_message)
         elif not terminal["running"]:
             raise CheckError(f"no agent showed in terminal {terminal['address']} within {fleet.SECONDS_TO_WAIT_FOR_AGENT} "
                              f"seconds. It shows:\n{fleet.terminal_text(terminal['address'])}\n"

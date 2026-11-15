@@ -40,6 +40,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import codex  # noqa: E402
 import fleet  # noqa: E402
 from fleet import CheckError, age, run  # noqa: E402
 
@@ -168,18 +169,18 @@ def resume(herd: fleet.Fleet, domain: str, name: str) -> int:
         raise Refused(f"{name}'s record holds no effort for its Codex session. Start it with:\n  {fleet.SCRIPTS}/"
                       f"delegate_start.py {name} --task \"{task}\" --cwd {record['cwd']} --resume {record['session']} --effort <effort>")
     if runs_codex:
-        fleet.require_codex_trust(record["cwd"])
-    program = (fleet.codex_program(record["effort"], session=record["session"]) if runs_codex
+        codex.require_codex_trust(record["cwd"])
+    program = (codex.codex_program(record["effort"], session=record["session"]) if runs_codex
                else [fleet.CLAUDE, "--resume", record["session"], *fleet.DELEGATE_FLAGS, "--name", tab_label])
     launched_at = time.time()
     terminal = fleet.launch(
         name=name, cwd=record["cwd"], tab_label=tab_label, space=coordinator["space"],
         labels={"fleet.domain": domain, "fleet.task": task,
-                **(fleet.codex_labels(record["effort"], record["session"]) if runs_codex else {})},
+                **(codex.codex_labels(record["effort"], record["session"]) if runs_codex else {})},
         program=program, parent=coordinator["address"],
     )
     if runs_codex:
-        fleet.finish_codex_start(terminal, record["cwd"], launched_at, record["session"], None)
+        codex.finish_codex_start(terminal, record["cwd"], launched_at, record["session"], None)
     elif not terminal["running"]:
         raise CheckError(f"no agent showed in terminal {terminal['address']} within {fleet.SECONDS_TO_WAIT_FOR_AGENT} "
                          f"seconds, so the ended record stays. It shows:\n{fleet.terminal_text(terminal['address'])}\n"

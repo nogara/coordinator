@@ -53,7 +53,7 @@ uncommitted files, commits on no remote or base, a live session and running
 processes, and refuses on any of them. Then it moves the worktree's ignored
 files to `<main checkout>/.scratch/parked/<worktree name>/`, at the same
 paths: `.scratch/`, `.env`, `evals/results/` and the like. It drops what
-`is_build_output` in sweep.py calls build output, such as `node_modules/`,
+`is_build_output` in parking.py calls build output, such as `node_modules/`,
 `out/` and `*.log`, except inside a `.scratch/` folder, and prints what it
 dropped. When that folder exists, the new one's name ends in
 `-<YYYYMMDD-HHMMSS>`. Then it removes the worktree and deletes its branch.
