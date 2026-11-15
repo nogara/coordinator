@@ -1,4 +1,4 @@
-# Coordinator
+# Coordinator, for Claude Code
 
 Coordinator turns one coding-agent session into a manager for a body of
 work. You give it a domain, such as a repo or a product area, and send it
