@@ -46,57 +46,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fleet  # noqa: E402
-from fleet import CheckError, age, parse_time, repo_of, run  # noqa: E402
+from fleet import CheckError, age, parse_time, repo_of  # noqa: E402
+from resume import resume_text  # noqa: E402
+from status_prs import fetch_pull_requests  # noqa: E402
 
-RECENTLY_CLOSED_DAYS = 14
 DEFAULT_BRANCHES = ("main", "master")
-
-SEARCH = """
-query($q: String!, $cursor: String) {
-  search(query: $q, type: ISSUE, first: 50, after: $cursor) {
-    issueCount
-    pageInfo { hasNextPage endCursor }
-    nodes { ... on PullRequest {
-      number title url state createdAt mergedAt closedAt headRefName headRefOid
-      %s
-    } }
-  }
-}
-"""
-OPEN_FIELDS = """
-      isDraft baseRefName mergeable reviewDecision
-      commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state } } } }
-      reviewThreads(first: 100) { nodes { isResolved comments(first: 1) { nodes { createdAt } } } }
-      reviewRequests { totalCount }
-      latestOpinionatedReviews(first: 30) { nodes { state submittedAt author { login __typename } } }
-      timelineItems(itemTypes: READY_FOR_REVIEW_EVENT, last: 1) { nodes { ... on ReadyForReviewEvent { createdAt } } }
-"""
-
-
-
-
-def fetch_pull_requests(slug: str, now: dt.datetime) -> list[dict]:
-    since = (now - dt.timedelta(days=RECENTLY_CLOSED_DAYS)).strftime("%Y-%m-%d")
-    found: dict[int, dict] = {}
-    searches = (
-        (f"repo:{slug} is:pr is:open author:@me", SEARCH % OPEN_FIELDS),
-        (f"repo:{slug} is:pr is:closed author:@me closed:>={since}", SEARCH % ""),
-    )
-    for search, query in searches:
-        fetched, cursor = [], None
-        while True:
-            command = ["gh", "api", "graphql", "-f", f"query={query}", "-f", f"q={search}"]
-            if cursor:
-                command += ["-f", f"cursor={cursor}"]
-            page = json.loads(run(command))["data"]["search"]
-            fetched += [node for node in page["nodes"] if node]
-            if not page["pageInfo"]["hasNextPage"]:
-                break
-            cursor = page["pageInfo"]["endCursor"]
-        if len(fetched) != page["issueCount"]:
-            raise CheckError(f"{slug}: fetched {len(fetched)} pull requests but GitHub counts {page['issueCount']}")
-        found.update({pr["number"]: pr for pr in fetched})
-    return list(found.values())
 
 
 def waits_on(pr: dict, open_branches: dict[str, int]) -> tuple[str, str, str, dt.datetime | None]:
@@ -401,12 +355,16 @@ def main() -> int:
     parser.add_argument("--prs", metavar="REPO=FILE", action="append", default=[],
                         help='read saved pull requests for the repo of that name: {"prs": [...]}')
     parser.add_argument("--inbox-store", metavar="FILE", help="read a saved copy of the inbox mod's state")
+    parser.add_argument("--resume", action="store_true",
+                        help="first print the backlog sections a coordinator reads after compaction or a restart")
     parser.add_argument("--at", metavar="TIME", help="ISO time to measure ages from; default: now")
     args = parser.parse_args()
 
     try:
+        if args.resume and args.json:
+            raise CheckError("--resume prints text; run it without --json")
         state = collect(args)
-        output = as_json(state) if args.json else render(state)
+        output = resume_text(state["domain"], render(state)) if args.resume else as_json(state) if args.json else render(state)
     except (CheckError, OSError, KeyError, TypeError, ValueError, IndexError) as error:
         print(f"fleet_status: could not check: {type(error).__name__}: {error}", file=sys.stderr)
         return 2

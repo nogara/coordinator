@@ -151,7 +151,7 @@ Each script's `--help` covers it in full.
 | `delegate_start.py` | starts a delegate, or resumes one whose terminal is gone |
 | `delegate_cap.py` | allows or refuses a new delegate, and sends a message to one when allowed |
 | `fleet_watch.py` | waits until something in the fleet needs the coordinator |
-| `fleet_status.py` | prints the fleet's state, grouped by who acts next |
+| `fleet_status.py` | prints the fleet's state, grouped by who acts next; with `--resume`, also the backlog sections to read again and whether the watcher runs |
 | `backlog_check.py` | prints a backlog's size, and lists what a trim dropped that it must put back |
 | `delegate_end.py` | ends a quiet delegate, and resumes it later |
 | `coordinator_restart.py` | starts, restarts and stops coordinators |

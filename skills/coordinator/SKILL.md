@@ -46,8 +46,13 @@ path, from the skill's base directory. Settings come from
 6. Report: what finished, what waits on the user as self-contained asks,
    what is running, and what you take next.
 
-Repeat steps 2 and 4 after compaction and after a restart, and re-arm the
-fleet watcher. A restart also follows [Restart](#restart).
+After compaction and after a restart, run
+`scripts/fleet_status.py --resume` and read all it prints: the backlog's
+Boundary, Standing yes and Open sections, the fleet's status, and whether
+your watcher runs. For a backlog over its limit it prints only each
+section's size, so read Boundary and Standing yes yourself. Then run the
+fleet-sweep skill and re-arm the fleet watcher. A restart also follows
+[Restart](#restart).
 
 ## Each item
 
