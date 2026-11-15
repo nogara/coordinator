@@ -1,5 +1,5 @@
 # Coordinator
-## A higher-level agentic workflow for Claude Code and Herdr
+### A higher-level agentic workflow for Claude Code and Herdr
 
 Coordinator turns one coding-agent session into a manager for a body of
 work. You give it a domain, such as a repo or a product area, and send it
