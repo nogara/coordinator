@@ -72,6 +72,15 @@ and download the Herdr app from [herdr.dev](https://herdr.dev).
 
 ## Install
 
+To have an agent do it, paste this into Claude Code:
+
+```
+Set up the coordinator workflow by following https://raw.githubusercontent.com/petekp/coordinator/main/SETUP.md
+```
+
+It installs Herdr, these skills and the Inbox plugin, and offers Vignette,
+asking before each step. To install by hand:
+
 ```sh
 git clone https://github.com/petekp/coordinator.git ~/src/coordinator
 ~/src/coordinator/install.sh
