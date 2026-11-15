@@ -136,12 +136,17 @@ Pick the agent and the effort from the brief, as you pick the model:
   it watched loses an event. Without the list the watcher stops at once
   with `old state`. If you no longer have the list, name the delegates and
   PRs in your backlog's Open section, and drop any that `no agent` reports.
-  From the next run on, `--domain` alone remembers it.
+  From the next run on, `--domain` alone is enough. It then watches only
+  what the domain finds: its delegates and the PRs its backlog names. A
+  listed delegate outside the domain, or a listed PR the backlog does not
+  name, leaves the watch with no line, so write each listed PR in the
+  backlog first.
 
   It polls herdr-core every 5 seconds and GitHub every 90, and exits once
   something needs you, printing one line per event. Its `--help` lists the
   lines. Urgent events wake you within 15 seconds of being seen: a new ask,
-  a blocked, errored, gone or stuck delegate, a merged or closed PR, failed
+  a blocked, errored or gone delegate, an `unknown` one whose terminal has
+  reported no status for 5 minutes, a merged or closed PR, failed
   checks, requested changes, and a `--pr` that GitHub cannot find. Other
   events wait until 10 minutes after the last wake-up.
 
