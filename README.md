@@ -97,7 +97,7 @@ fleet watcher checks whether the clone is behind its upstream, and the
 coordinator tells you when it is. It never pulls by itself. To uninstall, run
 `~/src/coordinator/install.sh --remove`, then delete the clone.
 
-## Herdr sidebar
+## Coordinator-first layout for Herdr
 
 ![The Coordinator layout](herdr/preview.png)
 
