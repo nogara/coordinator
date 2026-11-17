@@ -1,8 +1,12 @@
 // Agents in grouped or priority views; parents take their most urgent sub-agent's place.
 // Opened with mod.open (Cmd-K), it's the agent jumper: the top-level agents, in the list's order.
 
-import { View, div, image, svg } from "gpui-kit";
+import { View, div, svg } from "gpui-kit";
 import { spaceTile } from "./tile.js";
+import { icon } from "./icon.js";
+import { leadPanes, title } from "./tab-names.js";
+import { headerButton, initNewMenu, loadPrograms, newMenu } from "./new-agent.js";
+import { OTHER_TABS_GROUP, continued, otherTabs, splitTabs, tabRow, tabsSection, treeLines } from "./other-tabs.js";
 import { LABEL, palette, indexOf, nextIndex } from "./colors.js";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { agents, terminals, panes, focused, spaces, run, hc, theme, settings, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, window, layout } from "herdr";
@@ -38,30 +42,6 @@ function toggleSidebar() {
   run("layout.resize", { id: "sidebar", px: narrow() ? (shared("sidebar.width") ?? 268) : window()?.platform === "macos" ? 76 : 44 });
 }
 
-// Drops what an agent puts before its title: a status glyph or spinner and the separator
-// after it ("✦  Working", "⠋ - Thinking"), and Codex's blinking "[ ! ] " / "[ . ] " mark.
-// Stops at an opening bracket or quote, so a title that starts with one ("[web] login") keeps it.
-const clean = (s) => (s ?? "").replace(/^[^\p{L}\p{N}\p{Ps}\p{Pi}]+/u, "").replace(/^\[ [!.] \] /, "").trim();
-
-function leadPanes(all) {
-  const leads = new Map();
-  for (const p of all) {
-    if (!p.terminal) continue;
-    const current = leads.get(p.tab);
-    // First agent, else first focused terminal, else first terminal in the tab.
-    if (!current || (!current.program?.agent && (p.program?.agent || (!current.focused && p.focused)))) leads.set(p.tab, p);
-  }
-  return leads;
-}
-
-function title(tab, l) {
-  const prog = l?.program?.name;
-  const live = clean(l?.title);
-  // clean() would strip a path's leading ~ or /: test the title with only its status glyph gone.
-  const path = /^[~/]|^[A-Za-z]:\\/.test((l?.title ?? "").replace(/^[^\p{L}\p{N}~/]+/u, ""));
-  const telling = live && live !== (l?.terminal ?? l?.address) && live !== prog && !path && !live.includes("@") && live.toLowerCase() !== l?.program?.key;
-  return (tab.name === prog || !tab.named) && telling ? live : tab.name;
-}
 const RANK = { blocked: 4, done: 3, working: 2, idle: 1 };
 // A sub-agent without a pane isn't in agents(): its raw word, error counting as
 // blocked. It's never done: it reports to its parent, and the parent's done is the news.
@@ -82,20 +62,13 @@ const JUMP_ROW_HEIGHT = 30;
 const DRAG_START_DISTANCE = 4;
 const JUMP_LIST_HEIGHT = 360;
 // The menus are overlays too, each with its own prop.
-const isJumper = () => Boolean(props()?.overlay) && !props()?.sortMenu && !props()?.agentMenu;
+const isJumper = () => Boolean(props()?.overlay) && !props()?.sortMenu && !props()?.agentMenu && !props()?.newMenu;
 const SECTION = { 4: "Needs you", 3: "Done", 2: "Working", 1: "Idle" };
 const SECTION_STATUS = { 4: "blocked", 3: "done", 2: "working" };
 
-// The agent's icon from the app's program table: a one-color glyph or a picture.
-// oneColor draws an SVG picture as a glyph in `color` too.
-function icon(p, size, color, oneColor = false) {
-  if (!p?.icon) return null;
-  const glyph = p.tint || (oneColor && p.icon.endsWith(".svg"));
-  return glyph ? svg(p.icon).size(size).flex_none().text_color(color) : image(p.icon).w(size).h(size).flex_none();
-}
-
 export default class Agents extends View {
   init(_props, cx) {
+    if (props()?.newMenu) return initNewMenu(this);
     if (props()?.sortMenu || props()?.agentMenu) return;
     // Each agent's last state and when it changed (ms), kept across restarts.
     try { this.changed = JSON.parse(localStorage.getItem("changed") ?? "{}"); } catch { this.changed = {}; }
@@ -103,7 +76,10 @@ export default class Agents extends View {
     if (isJumper()) return this.initJumper(cx);
     // Colors written but not yet echoed back as labels, by terminal address.
     this.pendingColors = new Map();
-    this.folded = new Set();
+    this.folded = new Set([OTHER_TABS_GROUP]);
+    // Pinned agents whose tabs are shown, by address.
+    this.tabsOpen = new Set();
+    loadPrograms(this);
     try { this.pendingPins = JSON.parse(localStorage.getItem("pins") ?? "[]"); } catch { this.pendingPins = []; }
     if (!Array.isArray(this.pendingPins)) this.pendingPins = [];
     if (!this.pendingPins.length) localStorage.removeItem("pins");
@@ -478,9 +454,7 @@ export default class Agents extends View {
       .when(on, (el) => el.bg(t.raised))
       .hover((s) => s.bg(t.hover))
       .on_click(() => (this.listed.has(k.address) ? run("pane.focus", { terminal: k.address }) : this.peek(k.address)))
-      .children(s.lines.map(l => div().self_start().mt(-4).w(9).h(17).mr(4).flex_none()
-        .when(Boolean(l), el => el.border_l(1.5).border_color(t.input))
-        .when(l === "└" || l === "├", el => el.border_b(1.5).rounded_bl(6))))
+      .children(treeLines(t, s.lines))
       .when(Boolean(pic), el => el.child(div().mr(8).child(pic)))
       .child(this.nameCell(t, k.address, k.name || k.template || k.program?.name || k.address, on ? t.foreground : t.muted))
       .child(st === "blocked" ? blockedDot : this.status(t, { status: st }, compact));
@@ -509,6 +483,7 @@ export default class Agents extends View {
     const t = theme();
     if (props()?.sortMenu) return this.sortMenu(t);
     if (props()?.agentMenu) return this.agentMenu(t, props().agentMenu);
+    if (props()?.newMenu) return newMenu(t, this);
     if (isJumper()) return this.jumper(t);
     const collapsed = narrow();
     const sort = sortOf();
@@ -530,11 +505,18 @@ export default class Agents extends View {
     const { list, pinned, rest, rankOf } = this.ordered(all, collapsed);
     setAgentOrder(list.map((a) => a.address));
 
+    const { ownedBy, rest: unownedTabs } = collapsed ? { ownedBy: new Map(), rest: [] } : splitTabs(otherTabs(), pinned);
     const withKids = (a, i) => {
       const subs = collapsed ? [] : this.tree(all, a.address);
       const r = row(a, i, subs);
       if (this.folded.has(a.address)) return [r];
-      return [r, ...subs.map((s) => this.subRow(t, s, shown, byPriority))];
+      const tabs = ownedBy.get(a.address);
+      const shownSubs = tabs ? continued(subs) : subs;
+      const toggle = (_e, cx) => {
+        this.tabsOpen.has(a.address) ? this.tabsOpen.delete(a.address) : this.tabsOpen.add(a.address);
+        cx.notify();
+      };
+      return [r, ...shownSubs.map((s) => this.subRow(t, s, shown, byPriority)), ...(tabs ? tabsSection(t, tabs, this.tabsOpen.has(a.address), toggle) : [])];
     };
 
     // Folds or opens an agent's sub-agents. With Option, every agent's, to match the one clicked.
@@ -661,6 +643,8 @@ export default class Agents extends View {
       else groups.push({ id, label: byPriority ? SECTION[r] : a.space_name || "", status: byPriority ? SECTION_STATUS[r] : null, members: [a] });
     }
 
+    if (unownedTabs.length) groups.push({ id: OTHER_TABS_GROUP, label: "Other tabs", status: null, members: unownedTabs, showSpace: true });
+
     // A group's header; it folds the group. Folded, it says how many and the most urgent state.
     const header = (g) => {
       const open = !this.folded.has(g.id);
@@ -690,7 +674,7 @@ export default class Agents extends View {
     };
     const rows = collapsed
       ? list.flatMap(withKids)
-      : groups.flatMap((g) => [header(g), ...(this.folded.has(g.id) ? [] : g.members.flatMap(withKids))]);
+      : groups.flatMap((g) => [header(g), ...(this.folded.has(g.id) ? [] : g.members.flatMap((m, i) => (m.other ? [tabRow(t, m, { showSpace: g.showSpace })] : withKids(m, i))))]);
 
     return v_flex()
       .size_full()
@@ -717,7 +701,9 @@ export default class Agents extends View {
             .items_center()
             .justify_between()
             .child(div().text_size(11.5).font_medium().text_color(t.dim).child("Agents"))
-            .child(
+            .child(h_flex().gap(8).items_center()
+              .child(headerButton(t, this))
+              .child(
               div()
                 .id("ag-sort")
                 .text_size(11)
@@ -726,7 +712,7 @@ export default class Agents extends View {
                 .on_click(() => openOverlay({ mod: "coordinator-agents", kind: "popup", at: "pointer", width: 200, height: 140, props: { sortMenu: true } }))
                 .tooltip(`Sort agents: ${sort.label}`)
                 .child(svg(`mods/workspace-chrome/${sort.icon}.svg`).size(14)),
-            ),
+            )),
         ),
       )
       .when(list.length === 0 && !collapsed, (el) =>
