@@ -149,6 +149,7 @@ class TestWatchCache(unittest.TestCase):
         failing = {"org/repo": 10_000.0 - 3600}
         line = watch_cache.github_blind_line("org/repo", "dial tcp: i/o timeout", failing, Clock(), 900)
         self.assertEqual(line, "blind repo · GitHub queries failed for 60 minutes · dial tcp: i/o timeout")
+        self.assertEqual(failing, {})
         failing = {"org/repo": 10_000.0 - 900}
         self.assertIn("for 15 minutes", watch_cache.github_blind_line("org/repo", "HTTP 401", failing, Clock(), 900))
         self.assertIsNone(watch_cache.github_blind_line("org/repo", None, failing, Clock(), 900))

@@ -193,6 +193,7 @@ def github_blind_line(repo: str, reason: str | None, failing_since: dict, clock,
     limit = github_blind_limit(reason, default_seconds)
     if clock.awake_seconds_since(failing_since.setdefault(repo, time.time())) < limit:
         return None
+    del failing_since[repo]
     return f"blind {os.path.basename(repo)} · GitHub queries failed for {limit // 60} minutes · {reason}"
 
 
