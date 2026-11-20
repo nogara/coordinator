@@ -18,7 +18,7 @@ DEFAULTS = {
     "state_dir": "~/.local/state/coordinator",
     "keep_running": [],
     "delegate_claude_args": [],
-    "delegate_env": {"NODE_OPTIONS": "--max-old-space-size=4096"},
+    "delegate_env": {},
     "inbox_store": None,
     "backlog_limit_kb": 40,
     "done_limit_kb": 20,

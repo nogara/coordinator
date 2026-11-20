@@ -137,7 +137,7 @@ defaults. `COORDINATOR_CONFIG` can name another file.
 | `state_dir` | ended delegates, the cap check's log and the watcher's state | `~/.local/state/coordinator` |
 | `keep_running` | domains whose delegates are never ended for being quiet | none |
 | `delegate_claude_args` | extra Claude Code arguments for every delegate, such as `["--autocompact", "300000"]` | none |
-| `delegate_env` | environment variables set for every delegate | `{"NODE_OPTIONS": "--max-old-space-size=4096"}` |
+| `delegate_env` | environment variables set for every delegate | `{}` |
 | `inbox_store` | the inbox's saved state, needed only when more than one exists | found on its own |
 | `backlog_limit_kb` | most kilobytes of a backlog outside its Done section, which the coordinator reads at each start; 40 KB is about 10,000 tokens | 40 |
 | `done_limit_kb` | most kilobytes of a backlog's Done section | 20 |

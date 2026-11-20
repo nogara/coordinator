@@ -67,9 +67,10 @@ coordinator asks the user in one place and relays their answers. When it
 relays an answer to an item your inbox holds anyway, close that item with
 it.
 
-Do not message your coordinator with `hc send` or `SendMessage`. Write
-`REPORT.md` and end your turn with the same in your reply, so the
-coordinator's fleet watcher wakes it once. Only use `hc send <coordinator's address> "<text>"`
-if a hard blocker outside your worktree prevents you from ending the turn
-with a report.
+Send your coordinator no message for progress or for a question. Write
+`REPORT.md` and end your turn with the same in your reply, and the
+coordinator's fleet watcher wakes it. Use
+`hc send <coordinator's address> "<text>"` only when you are blocked on
+something another session holds, such as a shared check or a virtual
+machine.
 ```

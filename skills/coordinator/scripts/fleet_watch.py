@@ -60,7 +60,7 @@ Lines that end the watch without an event:
 
   blind hc|backlog|<repo> · <reason>
                                  that source failed for 15 minutes with the Mac
-                                 awake: arm again
+                                 awake, or 60 for a GitHub network error: arm again
   owner gone                     the owner's terminal ran no agent in two polls
   parent gone                    the shell that started it exited: arm again
   stopped                        you or a newer watcher stopped this one
@@ -142,8 +142,8 @@ from due_steps import due_lines  # noqa: E402
 from mac_clock import MacClock  # noqa: E402
 from update_check import update_line  # noqa: E402
 from waiting_label import declare_waiting  # noqa: E402
-from watch_cache import (AgentCache, StateSaver, github_blind_limit, load_json as load,  # noqa: E402
-                         pr_poll_delay, prune_state, save_json_atomic as save)
+from watch_cache import (AgentCache, StateSaver, failures_carried_over, github_blind_line,  # noqa: E402
+                         load_json as load, pr_poll_delay, prune_state, save_json_atomic as save)
 from watch_domain import (adopt_earlier_pr, copy_to_same_pr, copy_to_same_terminal, domain_member_names,  # noqa: E402
                           domain_pull_requests, given_terminals, named, slug_spec, under_watch_names,
                           watched_agent_names, watched_pr_specs, written_before_domain)
@@ -437,7 +437,7 @@ def main():
     started_at = time.time()
     agents_ok_at = started_at
     backlog_ok_at = started_at
-    github_ok_at = {}
+    github_failing_since = failures_carried_over(saved, started_at)
     clock = MacClock(saved.get("clock"))
     owner_misses = 0
     name_misses = {name: 0 for name in args.agent if not agents_seen.get(name, {}).get("present")}
@@ -460,7 +460,7 @@ def main():
         state_saver.save({"source": STATE_SOURCE, "agents": agents_seen, "prs": prs_seen, "pending": pending,
                           "last_wake_at": last_wake_at, "clock": clock.reading(),
                           "watched_agents": watched_names(), "watched_prs": watched_specs(),
-                          "due_fired": due_fired}, force=force)
+                          "due_fired": due_fired, "github_failing_since": github_failing_since}, force=force)
 
     def end(line):
         save_state(events, force=True)
@@ -540,13 +540,9 @@ def main():
                 lines, due_fired = due_lines(args.domain, time.strftime("%Y-%m-%d"), due_fired)
                 events += lines or []
             for repo in dict.fromkeys([spec.rsplit("#", 1)[0] for spec in specs] + list(searched)):
-                if repo not in failed:
-                    github_ok_at[repo] = time.time()
-                else:
-                    limit = github_blind_limit(failed[repo], BLIND_SECONDS)
-                    if clock.awake_seconds_since(github_ok_at.get(repo, started_at)) >= limit:
-                        return end(f"blind {os.path.basename(repo)} · GitHub queries failed for {limit // 60} minutes"
-                                   f" · {failed[repo]}")
+                blind = github_blind_line(repo, failed.get(repo), github_failing_since, clock, BLIND_SECONDS)
+                if blind:
+                    return end(blind)
 
         save_state(events)
 

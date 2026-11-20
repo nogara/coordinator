@@ -50,9 +50,8 @@ the tab and do not send again.
    the user names them: without `--effort` the delegate runs at the effort
    in their Claude Code settings. Every delegate also gets the config's
    `delegate_claude_args`, such as `["--autocompact", "300000"]` to compact
-   earlier and keep each response cheaper, and `delegate_env` (by default
-   `{"NODE_OPTIONS": "--max-old-space-size=4096"}`) so runaway test runners
-   cannot exhaust memory.
+   earlier and keep each response cheaper, and the environment variables in
+   the config's `delegate_env`.
 4. Write the handle the script prints under the task in the backlog's Open
    section. It holds the name, terminal address, tab label, worktree,
    branch, session id and model.

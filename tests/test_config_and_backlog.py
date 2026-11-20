@@ -39,9 +39,9 @@ class TestConfig(unittest.TestCase):
 
     def test_delegate_env_default_validation_and_wrapping(self):
         loaded = config.load_config(self.sb.root / "missing.json")
-        self.assertEqual(loaded["delegate_env"], {"NODE_OPTIONS": "--max-old-space-size=4096"})
+        self.assertEqual(loaded["delegate_env"], {})
         self.assertEqual(
-            config.with_delegate_env(["claude", "--model", "sonnet"], loaded["delegate_env"]),
+            config.with_delegate_env(["claude", "--model", "sonnet"], {"NODE_OPTIONS": "--max-old-space-size=4096"}),
             ["env", "NODE_OPTIONS=--max-old-space-size=4096", "claude", "--model", "sonnet"],
         )
         self.assertEqual(config.with_delegate_env(["claude"], {}), ["claude"])

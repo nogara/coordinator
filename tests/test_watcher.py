@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import time
 import unittest
 from pathlib import Path
 
@@ -69,9 +70,10 @@ class TestWatcherEvents(unittest.TestCase):
         self.assertIn("pr repo#10 comments 2", evs)
 
     def test_mac_clock_detects_sleep(self):
-        clk = fleet_watch.MacClock([1000.0, 100.0, 0.0])
-        # Simulate wall time advancing much faster than monotonic time
-        self.assertGreaterEqual(clk.mac_woke_at, 0.0)
+        an_hour_ago = time.time() - 3600
+        clk = fleet_watch.MacClock([an_hour_ago, time.monotonic() - 10, 0.0])
+        self.assertGreater(clk.mac_woke_at, an_hour_ago + 3000)
+        self.assertLess(clk.awake_seconds_since(an_hour_ago), 60)
 
 
 class TestWatcherCheckCLI(unittest.TestCase):

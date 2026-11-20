@@ -82,9 +82,11 @@ stop, so add nothing else:
 
 - `delegate_claude_args`: `["--autocompact", "300000"]` makes delegates
   compact their context earlier, which keeps long tasks cheaper.
-- `delegate_env`: environment variables set for every delegate (defaults to
-  `{"NODE_OPTIONS": "--max-old-space-size=4096"}` so runaway Node test
-  runners cannot exhaust memory).
+- `delegate_env`: environment variables set for every delegate, none by
+  default. Each one replaces a value of the same name from the login
+  profile. `{"NODE_OPTIONS": "--max-old-space-size=2048"}` limits the heap
+  of each Node process a delegate starts; a test runner's workers each get
+  that limit.
 
 `config.example.json` in the clone lists every key.
 

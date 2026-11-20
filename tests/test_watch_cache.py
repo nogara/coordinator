@@ -110,18 +110,49 @@ class TestWatchCache(unittest.TestCase):
             "org/repo#3": {"slug": "org/repo", "state": "OPEN"},  # no longer in open_numbers
             "org/repo#4": {"slug": "org/repo", "state": "OPEN"},  # still open in open_numbers
             "org/repo#5": {"slug": "org/repo", "state": "CLOSED"},
+            "org/repo#6": {"slug": "org/repo", "state": "MISSING"},
         }
         live = [{"address": "t1", "name": "active"}, {"address": "t2", "name": "still-live-unwatched"}]
-        watch_cache.prune_state(
-            agents_seen,
-            prs_seen,
-            watched_agents={"active"},
-            watched_prs={"org/repo#1"},
-            live_agents=live,
-            open_numbers={"org/repo": [1, 4]},
-        )
+
+        def prune(now):
+            watch_cache.prune_state(
+                agents_seen,
+                prs_seen,
+                watched_agents={"active"},
+                watched_prs={"org/repo#1"},
+                live_agents=live,
+                open_numbers={"org/repo": [1, 4]},
+                now=now,
+            )
+
+        prune(now=1000.0)
         self.assertEqual(set(agents_seen), {"active", "still-live-unwatched"})
+        self.assertEqual(len(prs_seen), 7)
+        prune(now=1000.0 + 23 * 3600)
+        self.assertEqual(len(prs_seen), 7)
+        prune(now=1000.0 + 24 * 3600)
         self.assertEqual(set(prs_seen), {"org/repo#1", "/tmp/repo#1", "org/repo#4"})
+
+    def test_failing_since_carries_over_only_between_back_to_back_watchers(self):
+        saved = {"clock": [5000.0, 10.0, 0.0], "github_failing_since": {"org/repo": 4000.0}}
+        self.assertEqual(watch_cache.failures_carried_over(saved, started_at=5060.0), {"org/repo": 4000.0})
+        self.assertEqual(watch_cache.failures_carried_over(saved, started_at=5000.0 + 3600), {})
+        self.assertEqual(watch_cache.failures_carried_over({}, started_at=5060.0), {})
+
+    def test_blind_line_counts_from_the_first_failure_and_clears_on_success(self):
+        class Clock:
+            def awake_seconds_since(self, wall_time):
+                return 10_000.0 - wall_time
+
+        failing = {"org/repo": 10_000.0 - 3599}
+        self.assertIsNone(watch_cache.github_blind_line("org/repo", "dial tcp: i/o timeout", failing, Clock(), 900))
+        failing = {"org/repo": 10_000.0 - 3600}
+        line = watch_cache.github_blind_line("org/repo", "dial tcp: i/o timeout", failing, Clock(), 900)
+        self.assertEqual(line, "blind repo · GitHub queries failed for 60 minutes · dial tcp: i/o timeout")
+        failing = {"org/repo": 10_000.0 - 900}
+        self.assertIn("for 15 minutes", watch_cache.github_blind_line("org/repo", "HTTP 401", failing, Clock(), 900))
+        self.assertIsNone(watch_cache.github_blind_line("org/repo", None, failing, Clock(), 900))
+        self.assertEqual(failing, {})
 
     def test_network_error_classification_and_backoff(self):
         self.assertTrue(watch_cache.is_transient_network_error("error connecting to api.github.com"))

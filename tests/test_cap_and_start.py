@@ -93,6 +93,9 @@ class TestDelegateCap(unittest.TestCase):
         brief = self.sb.root / "BRIEF.md"
         brief.write_text("# Brief\n")
         run_log = self.sb.root / "hc_run.log"
+        settings = json.loads(self.sb.config_path.read_text())
+        settings["delegate_env"] = {"NODE_OPTIONS": "--max-old-space-size=4096"}
+        self.sb.config_path.write_text(json.dumps(settings))
         coord = make_terminal("t1", None, "demo", "done", role="coordinator")
         spawned = make_terminal("t2", "d1", "demo", "working")
         hc_script = f"""
@@ -130,14 +133,14 @@ esac
 
     def test_removed_flags_rejected(self):
         cap_for_pr = self.sb.run_script(COORD_SCRIPTS / "delegate_cap.py", "--for-pr", "12")
-        self.assertEqual(cap_for_pr.returncode, 2)
+        self.assertIn("unrecognized arguments", cap_for_pr.stderr)
         cap_asked = self.sb.run_script(COORD_SCRIPTS / "delegate_cap.py", "--user-asked", "do it")
-        self.assertEqual(cap_asked.returncode, 2)
+        self.assertIn("unrecognized arguments", cap_asked.stderr)
         start_codex = self.sb.run_script(
             COORD_SCRIPTS / "delegate_start.py", "d1", "--task", "t", "--cwd", "/tmp",
             "--brief", "/tmp/b", "--agent", "codex",
         )
-        self.assertEqual(start_codex.returncode, 2)
+        self.assertIn("unrecognized arguments", start_codex.stderr)
 
     def test_delegate_end_refuses_legacy_codex_record(self):
         ended_dir = self.sb.state_dir / "ended"
