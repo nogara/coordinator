@@ -28,8 +28,7 @@ agent in a terminal that stays alive and shows them all in one app.
   coordinator when a delegate finishes, asks something or gets stuck. It
   also wakes it when a pull request is merged, fails its checks or gets a
   review.
-- The cap check keeps at most three delegates working at once, and can
-  hold the number of open pull requests in a repo under a limit you set.
+- The cap check keeps at most three delegates working at once.
 - Quiet delegates are ended after a day without a response, and resumed
   with the same session when something arrives for them.
 - fleet-sweep, the second skill, removes finished worktrees, branches,
@@ -54,16 +53,14 @@ batches of at most five, each with its options and a recommendation.
 
 Optional:
 
-- [Codex](https://github.com/openai/codex) can take small, mechanical
-  delegate tasks.
 - The [inbox](https://github.com/petekp/inbox) mod for Claude Code collects
   every question in one pane. The scripts read its saved questions when it
   is installed.
 - The Coordinator layout for Herdr is in `herdr/`, described under
   [Herdr sidebar](#herdr-sidebar).
 
-Tested on macOS with herdr-core 0.1.21, the Herdr app 0.1.15, Claude Code
-2.1.325 and Codex 0.164.0.
+Tested on macOS with herdr-core 0.1.21, the Herdr app 0.1.15 and Claude Code
+2.1.325.
 
 Install herdr-core with:
 
@@ -90,7 +87,7 @@ git clone https://github.com/petekp/coordinator.git ~/src/coordinator
 ```
 
 `install.sh` links both skills into `~/.claude/skills`, where Claude Code
-finds them, and `~/.agents/skills`, where Codex finds them. It then checks
+finds them, and `~/.agents/skills`. It then checks
 for the tools above. Keep the clone where it is: the links point into it.
 To update, run `git pull` in the clone. At its first wake-up each day, the
 fleet watcher checks whether the clone is behind its upstream, and the
@@ -138,10 +135,9 @@ defaults. `COORDINATOR_CONFIG` can name another file.
 |---|---|---|
 | `backlog_dir` | the folder for backlogs; briefs for domains without a repo go in its `briefs/` | `~/.config/coordinator/backlogs` |
 | `state_dir` | ended delegates, the cap check's log and the watcher's state | `~/.local/state/coordinator` |
-| `pr_limits` | most open pull requests from your GitHub account per repo, as `{"owner/repo": 30}` | none |
 | `keep_running` | domains whose delegates are never ended for being quiet | none |
 | `delegate_claude_args` | extra Claude Code arguments for every delegate, such as `["--autocompact", "300000"]` | none |
-| `delegate_codex_overrides` | extra Codex `-c` settings for every Codex delegate | none |
+| `delegate_env` | environment variables set for every delegate | `{"NODE_OPTIONS": "--max-old-space-size=4096"}` |
 | `inbox_store` | the inbox's saved state, needed only when more than one exists | found on its own |
 | `backlog_limit_kb` | most kilobytes of a backlog outside its Done section, which the coordinator reads at each start; 40 KB is about 10,000 tokens | 40 |
 | `done_limit_kb` | most kilobytes of a backlog's Done section | 20 |
@@ -196,7 +192,6 @@ Each script's `--help` covers it in full.
 - Removing a worktree moves its ignored files, such as `.env` and
   `.scratch/`, into `<main checkout>/.scratch/parked/`. Nothing here
   deletes parked folders, so clear them out now and then.
-- Codex delegates start only in repos you have marked as trusted in Codex.
 - Delegates run in your Claude Code permission mode. In the default mode
   each one stops at permission prompts, and at the folder trust prompt in
   each new worktree, until you answer in its tab.

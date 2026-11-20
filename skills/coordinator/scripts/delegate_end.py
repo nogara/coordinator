@@ -7,7 +7,7 @@ End a delegate that has gone quiet, and resume it when something arrives.
   delegate_end.py --resume <agent>  bring an ended delegate back
 
 Run it from the coordinator's terminal. Ending stops the delegate's Claude
-Code or Codex process and removes its herdr-core terminal, which closes its tab. Its
+Code process and removes its herdr-core terminal, which closes its tab. Its
 worktree, branch, backlog line and transcript stay, and so do the questions
 in its inbox. fleet_status.py keeps listing it, as ended. The record in
 <state_dir>/ended/, named by its session id, holds what resuming
@@ -36,11 +36,9 @@ import datetime as dt
 import json
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import codex  # noqa: E402
 import config  # noqa: E402
 import fleet  # noqa: E402
 from fleet import CheckError, age, run  # noqa: E402
@@ -115,7 +113,7 @@ def end(herd: fleet.Fleet, domain: str, target: str, now: dt.datetime, relayed: 
     tab_label = agent["tab_label"] or f"{domain} [{task}]"
     record = dict(
         name=name, task=task, domain=domain, tab_label=tab_label, session=fleet.session_of(agent),
-        program=agent["program"], effort=agent.get("effort"),
+        program=agent["program"],
         cwd=agent["cwd"], repo=slug, branch=branch, ended_at=now.isoformat(),
         quiet_since=since.isoformat() if since else None, terminal_text=terminal_text,
     )
@@ -165,24 +163,16 @@ def resume(herd: fleet.Fleet, domain: str, name: str) -> int:
         raise Refused(f"another live agent is already named {name}")
     task = record.get("task") or name
     tab_label = record.get("tab_label") or f"{domain} [{task}]"
-    runs_codex = record.get("program") == fleet.CODEX
-    if runs_codex and not record.get("effort"):
-        raise Refused(f"{name}'s record holds no effort for its Codex session. Start it with:\n  {fleet.SCRIPTS}/"
-                      f"delegate_start.py {name} --task \"{task}\" --cwd {record['cwd']} --resume {record['session']} --effort <effort>")
-    if runs_codex:
-        codex.require_codex_trust(record["cwd"])
-    program = (codex.codex_program(record["effort"], session=record["session"]) if runs_codex
-               else [fleet.CLAUDE, "--resume", record["session"], *fleet.DELEGATE_FLAGS, "--name", tab_label])
-    launched_at = time.time()
+    if record.get("program") == "codex":
+        raise Refused(f"{name}'s ended record is a Codex session, which delegate_end.py no longer supports. "
+                      f"Resume manually with `codex resume {record['session']}`")
+    program = [fleet.CLAUDE, "--resume", record["session"], *fleet.DELEGATE_FLAGS, "--name", tab_label]
     terminal = fleet.launch(
         name=name, cwd=record["cwd"], tab_label=tab_label, space=coordinator["space"],
-        labels={"fleet.domain": domain, "fleet.task": task,
-                **(codex.codex_labels(record["effort"], record["session"]) if runs_codex else {})},
+        labels={"fleet.domain": domain, "fleet.task": task},
         program=config.with_delegate_env(program), parent=coordinator["address"],
     )
-    if runs_codex:
-        codex.finish_codex_start(terminal, record["cwd"], launched_at, record["session"], None)
-    elif not terminal["running"]:
+    if not terminal["running"]:
         raise CheckError(f"no agent showed in terminal {terminal['address']} within {fleet.SECONDS_TO_WAIT_FOR_AGENT} "
                          f"seconds, so the ended record stays. It shows:\n{fleet.terminal_text(terminal['address'])}\n"
                          f"Remove a finished terminal with `hc rm {terminal['address']}` before trying again")

@@ -50,6 +50,18 @@ class TestConfig(unittest.TestCase):
         with self.assertRaises(ValueError):
             config.load_config(bad)
 
+    def test_deprecated_keys_accepted_and_ignored(self):
+        p = self.sb.root / "legacy.json"
+        p.write_text(json.dumps({
+            "pr_limits": {"org/repo": 30},
+            "delegate_codex_overrides": ["model_auto_compact_token_limit=300000"],
+            "backlog_limit_kb": 50,
+        }))
+        loaded = config.load_config(p)
+        self.assertEqual(loaded["backlog_limit_kb"], 50)
+        self.assertNotIn("pr_limits", loaded)
+        self.assertNotIn("delegate_codex_overrides", loaded)
+
 
 class TestBacklogCheck(unittest.TestCase):
     def setUp(self):

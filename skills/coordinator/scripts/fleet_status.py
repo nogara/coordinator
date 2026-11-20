@@ -224,11 +224,7 @@ def collect(args: argparse.Namespace) -> dict:
         slug: {pr["headRefName"]: pr["number"] for pr in prs if pr["state"] == "OPEN"}
         for slug, prs in pull_requests.items()
     }
-    limits = [
-        dict(repo=slug, limit=fleet.PR_LIMITS[slug], open=len(open_branches[slug]))
-        for slug in sorted(pull_requests) if slug in fleet.PR_LIMITS
-    ]
-    return dict(now=now, domain=domain, coordinator=coordinator, delegates=delegates, asks=asks, limits=limits,
+    return dict(now=now, domain=domain, coordinator=coordinator, delegates=delegates, asks=asks,
                 backlog_only=backlog_only, unnamed=unnamed, repos=sorted(pull_requests), open_branches=open_branches)
 
 
@@ -288,10 +284,6 @@ def render(state: dict) -> str:
     ]
     if not state["coordinator"]:
         out.append(f"No terminal is labelled as the coordinator for {state['domain']}.")
-    for limit in state["limits"]:
-        over = ": start nothing that opens another" if limit["open"] >= limit["limit"] else ""
-        out.append(f"{limit['repo']} has {limit['open']} open pull requests from your GitHub account, "
-                   f"limit {limit['limit']}{over}.")
 
     headings = (("the user", "Waits on the user"), ("a reviewer", "Waits on a reviewer"),
                 ("the fleet", "Waits on the fleet"), ("CI", "Waits on CI"),
@@ -339,7 +331,7 @@ def as_json(state: dict) -> str:
                     wait_event=waits[2] if waits else None, wait_since=waits[3] if waits else None)
 
     return json.dumps(dict(
-        at=state["now"], domain=state["domain"], repos=state["repos"], limits=state["limits"],
+        at=state["now"], domain=state["domain"], repos=state["repos"],
         delegates=[dict(d, pr=slim(d["pr"], d["repo"])) for d in state["delegates"]],
         asks=state["asks"],
         backlog_only=[dict(item, pr=slim(item["pr"], item["repo"])) for item in state["backlog_only"]],

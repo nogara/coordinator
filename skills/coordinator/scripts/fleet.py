@@ -1,12 +1,11 @@
 """
 What the coordinator scripts share: who the coordinators and their delegates
-are, which repos a domain works in, which delegates were ended, and the limit
-on open pull requests.
+are, which repos a domain works in, and which delegates were ended.
 
 The fleet runs in herdr-core terminals, read with `hc`. An agent is a live
-terminal whose foreground program is Claude Code or Codex, or reports a
-status, as coding agents do and shells do not. Each one carries its
-terminal address, such as t7, which `hc send`, `hc read` and `hc get` take.
+terminal whose foreground program is Claude Code, or reports a status, as
+coding agents do and shells do not. Each one carries its terminal address,
+such as t7, which `hc send`, `hc read` and `hc get` take.
 
 A coordinator is the agent whose terminal carries the labels
 fleet.role=coordinator and fleet.domain=<domain>. Its backlog is
@@ -17,12 +16,6 @@ The user's settings come from config.py.
 A delegate belongs to a domain when its terminal carries
 fleet.domain=<domain>, or carries no fleet.domain label and the backlog's
 Open section names its session id. delegate_start.py sets the label.
-
-A delegate runs Claude Code or Codex. Claude Code keeps a file per process
-that names its session. Codex does not, so delegate_start.py finds a Codex
-delegate's session in ~/.codex/sessions and writes it on the terminal as
-fleet.session. The terminal also carries fleet.effort, which only a Codex
-delegate has.
 
 An ended delegate is one its coordinator closed with delegate_end.py. Its
 record in <state_dir>/ended/ holds what resuming it needs.
@@ -51,9 +44,7 @@ ENDED_DIR = STATE_DIR / "ended"
 WATCH_DIR = STATE_DIR / "watch"
 INBOX_STORES = HOME / ".claude" / "plugins" / "store"
 SESSION_FILES = HOME / ".claude" / "sessions"
-CODEX_SESSION_FILES = HOME / ".codex" / "sessions"
 SCRIPTS = str(Path(__file__).resolve().parent)
-PR_LIMITS = dict(CONFIG["pr_limits"])
 DOMAINS_KEPT_RUNNING = set(CONFIG["keep_running"])
 IDLE_BEFORE_ENDING = dt.timedelta(hours=24)
 SECTION_HEADING = re.compile(r"^## (?!#)")
@@ -62,11 +53,8 @@ TRANSCRIPT_TAIL_BYTES = (2_000_000, 12_000_000)
 COMMAND_TIMEOUT_SECONDS = 60
 AGENT_PROGRAM = "claude-code"
 CLAUDE = "claude"
-CODEX = "codex"
-CODEX_EFFORTS = ("low", "medium", "high", "xhigh")
 HC_NOT_FOUND = 3
 DELEGATE_FLAGS = [str(arg) for arg in CONFIG["delegate_claude_args"]]
-DELEGATE_CODEX_OVERRIDES = [str(override) for override in CONFIG["delegate_codex_overrides"]]
 TERMINAL_NAME = re.compile(r"[a-z0-9_-]{1,32}")
 SECONDS_TO_WAIT_FOR_TAB = 15
 SECONDS_TO_WAIT_FOR_AGENT = 60
@@ -140,8 +128,7 @@ def as_agent(terminal: dict) -> dict:
         parent=terminal.get("parent"),
         session=(session_of_process(foreground.get("pid")) or labels.get("fleet.session")
                  or labels.get("inbox.session") or session_in_arguments(foreground.get("argv") or [])),
-        effort=labels.get("fleet.effort"),
-        program=CODEX if status.get("app") == CODEX or labels.get("fleet.effort") else CLAUDE,
+        program=CLAUDE,
         role=labels.get("fleet.role"),
         domain=labels.get("fleet.domain"),
         task=labels.get("fleet.task"),
@@ -161,7 +148,7 @@ def runs_an_agent(listed_terminal: dict) -> bool:
 def agent_started_from_its_shell(terminal: dict) -> bool:
     """`hc ls` lists such a terminal by its shell, with no status; `hc get` shows the agent in the foreground."""
     argv = (terminal.get("foreground") or {}).get("argv") or []
-    return bool(argv) and os.path.basename(argv[0]) in (CLAUDE, CODEX)
+    return bool(argv) and os.path.basename(argv[0]) == CLAUDE
 
 
 def listed_terminals() -> list[dict]:
@@ -508,20 +495,13 @@ def claude_transcript(session_id: str) -> str | None:
     return max(paths, key=os.path.getmtime) if paths else None
 
 
-def codex_session_file(session_id: str) -> str | None:
-    """The file Codex saves the session in. Codex compresses one it has stopped writing to, as .jsonl.zst."""
-    found = CODEX_SESSION_FILES / f"*/*/*/rollout-*-{session_id}.jsonl"
-    paths = glob.glob(str(found)) + glob.glob(f"{found}.zst") if session_id else []
-    return max(paths, key=os.path.getmtime) if paths else None
-
-
 def transcript_of(session_id: str) -> str | None:
-    return claude_transcript(session_id) or codex_session_file(session_id)
+    return claude_transcript(session_id)
 
 
 def program_of(session_id: str) -> str:
-    """Which agent the session belongs to, from which one saved it. Claude Code when neither did."""
-    return CODEX if not claude_transcript(session_id) and codex_session_file(session_id) else CLAUDE
+    """Which agent the session belongs to."""
+    return CLAUDE
 
 
 def lines_from_the_end(path: str):
@@ -536,25 +516,6 @@ def lines_from_the_end(path: str):
             return
 
 
-def codex_model_call_times(session_id: str):
-    """When the model answered in a Codex session, newest first. Codex writes a token_usage_record per model call."""
-    path = codex_session_file(session_id)
-    if path and path.endswith(".zst"):
-        # A compressed file keeps the time Codex last wrote to it.
-        yield dt.datetime.fromtimestamp(os.path.getmtime(path), dt.timezone.utc).isoformat()
-        return
-    for lines, _ in lines_from_the_end(path) if path else ():
-        for line in reversed(lines):
-            if '"type":"token_usage_record"' not in line:
-                continue
-            try:
-                stamp = json.loads(line).get("timestamp")
-            except json.JSONDecodeError:
-                continue
-            if stamp:
-                yield stamp
-
-
 def last_response(session_id: str, now: dt.datetime | None = None) -> dt.datetime | None:
     """When the model last responded in this session, read from the end of its transcript.
 
@@ -562,8 +523,7 @@ def last_response(session_id: str, now: dt.datetime | None = None) -> dt.datetim
     """
     path = claude_transcript(session_id)
     if not path:
-        times = (parse_time(stamp) for stamp in codex_model_call_times(session_id))
-        return next((when for when in times if now is None or when <= now), None)
+        return None
     for lines, _ in lines_from_the_end(path):
         for line in reversed(lines):
             if '"type":"assistant"' not in line:
@@ -585,11 +545,10 @@ def transcript_marks(session_id: str) -> tuple[str | None, str | None]:
     """The times of the session's last assistant entry and of a compaction after it, if there is one.
 
     An idle compaction writes a compact_boundary entry and no assistant entry.
-    For a Codex session the first is its last model call and the second is None.
     """
     path = claude_transcript(session_id)
     if not path:
-        return next(codex_model_call_times(session_id), None), None
+        return None, None
     for lines, holds_whole_file in lines_from_the_end(path):
         compacted = None
         for line in reversed(lines):
@@ -644,10 +603,3 @@ def open_pull_request_numbers(slug: str) -> list[int]:
         if not page["pageInfo"]["hasNextPage"]:
             return numbers
         cursor = page["pageInfo"]["endCursor"]
-
-
-def open_pull_request_count(slug: str) -> int:
-    """Open pull requests in the repo from the signed-in GitHub account."""
-    query = "query($q: String!) { search(query: $q, type: ISSUE, first: 1) { issueCount } }"
-    out = run(["gh", "api", "graphql", "-f", f"query={query}", "-f", f"q=repo:{slug} is:pr is:open author:@me"])
-    return json.loads(out)["data"]["search"]["issueCount"]

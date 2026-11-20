@@ -82,8 +82,7 @@ They never end the watch on their own:
                                  an event above is for the PR of a delegate
                                  you ended with delegate_end.py. Run the
                                  command to give it the work.
-  rule · <text>                  a standing rule and its command: the limit
-                                 on open PRs once reached, delegates
+  rule · <text>                  a standing rule and its command: delegates
                                  quiet for over a day, a backlog over its
                                  size limit, and an update to these skills,
                                  checked at most daily. Follow each.
@@ -279,17 +278,6 @@ def rule_lines(domain):
     if domain not in herd.backlogs:
         return []
     lines = []
-    for slug in sorted(herd.repos_of(domain) & set(fleet.PR_LIMITS)):
-        limit = fleet.PR_LIMITS[slug]
-        try:
-            count = fleet.open_pull_request_count(slug)
-        except Exception:
-            lines.append(f"rule · could not count the open PRs in {slug}, limit {limit} · run {fleet.SCRIPTS}/delegate_cap.py "
-                         "before starting work that opens one")
-            continue
-        if count >= limit:
-            lines.append(f"rule · {slug} has {count} open PRs from your GitHub account, limit {limit} · start nothing that "
-                         "opens a PR; work on an open PR goes ahead, and so does what the user asks for")
     text = herd.backlog(domain).read_text()
     for part in backlog.parts_over_their_limit(text):
         lines.append(f"rule · in your backlog, {part} · {backlog.what_to_do_when_over(text)}")

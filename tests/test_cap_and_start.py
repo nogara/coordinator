@@ -128,6 +128,46 @@ esac
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         self.assertIn("env NODE_OPTIONS=--max-old-space-size=4096 claude", run_log.read_text())
 
+    def test_removed_flags_rejected(self):
+        cap_for_pr = self.sb.run_script(COORD_SCRIPTS / "delegate_cap.py", "--for-pr", "12")
+        self.assertEqual(cap_for_pr.returncode, 2)
+        cap_asked = self.sb.run_script(COORD_SCRIPTS / "delegate_cap.py", "--user-asked", "do it")
+        self.assertEqual(cap_asked.returncode, 2)
+        start_codex = self.sb.run_script(
+            COORD_SCRIPTS / "delegate_start.py", "d1", "--task", "t", "--cwd", "/tmp",
+            "--brief", "/tmp/b", "--agent", "codex",
+        )
+        self.assertEqual(start_codex.returncode, 2)
+
+    def test_delegate_end_refuses_legacy_codex_record(self):
+        ended_dir = self.sb.state_dir / "ended"
+        ended_dir.mkdir(parents=True)
+        work = self.sb.root / "wt"
+        work.mkdir()
+        (ended_dir / "codex-sess-1.json").write_text(json.dumps({
+            "name": "old-codex",
+            "task": "lint",
+            "domain": "demo",
+            "session": "codex-sess-1",
+            "program": "codex",
+            "cwd": str(work),
+            "ended_at": "2026-11-15T00:00:00+00:00",
+        }))
+        coord = make_terminal("t1", None, "demo", "done", role="coordinator")
+        hc_script = f"""
+case "$1" in
+  ls) echo '{{"terminals":[{{"address":"t1","agent":"claude-code","status":{{"state":"done"}}}}]}}' ;;
+  get) echo '{json.dumps(coord)}' ;;
+esac
+"""
+        self.sb.write_stub("hc", hc_script)
+        res = self.sb.run_script(
+            COORD_SCRIPTS / "delegate_end.py", "--resume", "old-codex",
+            env_extra={"HC_TERMINAL_ID": "t1"},
+        )
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertIn("codex resume codex-sess-1", res.stdout + res.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

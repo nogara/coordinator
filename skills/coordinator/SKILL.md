@@ -149,8 +149,7 @@ worktree or handle. A subagent that reads a delegate's worktree writes its
 own files only under this session's scratch folder, and deletes nothing in
 the worktree: a reviewer that adopts the worktree's `.scratch/` as its own
 can delete the delegate's brief and report with it. [fleet.md](fleet.md)
-has the commands, Codex delegates and Codex as the coordinator. Before
-starting a delegate:
+has the commands and model selection rules. Before starting a delegate:
 
 - Ask the user only what changes the whole brief; a later choice becomes a
   stop point in the brief. When they asked for the item, starting needs no

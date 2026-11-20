@@ -80,10 +80,11 @@ If so, create `~/.config/coordinator/` and write `config.json` there with
 only the keys they chose. An unknown key makes every coordinator script
 stop, so add nothing else:
 
-- `pr_limits`: the most open pull requests they want from their account in
-  a repo, such as `{"their-org/their-repo": 20}`.
 - `delegate_claude_args`: `["--autocompact", "300000"]` makes delegates
   compact their context earlier, which keeps long tasks cheaper.
+- `delegate_env`: environment variables set for every delegate (defaults to
+  `{"NODE_OPTIONS": "--max-old-space-size=4096"}` so runaway Node test
+  runners cannot exhaust memory).
 
 `config.example.json` in the clone lists every key.
 
