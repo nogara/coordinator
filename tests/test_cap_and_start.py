@@ -1,0 +1,92 @@
+"""Tests for delegate_cap.py and delegate_start.py."""
+from __future__ import annotations
+
+import json
+import unittest
+
+from tests.helpers import COORD_SCRIPTS, Sandbox
+
+
+def make_terminal(addr: str, name: str | None, domain: str, status: str, role: str | None = None, space: str = "sp1") -> dict:
+    labels = {"fleet.domain": domain, "herdr.space": space}
+    if role:
+        labels["fleet.role"] = role
+    else:
+        labels["fleet.task"] = name or addr
+    return {
+        "address": addr,
+        "name": name,
+        "cwd": "/tmp",
+        "labels": labels,
+        "status": {"state": status, "app": "claude-code"},
+        "foreground": {"pid": 1000, "argv": ["claude"]},
+        "turn": 1,
+    }
+
+
+class TestDelegateCap(unittest.TestCase):
+    def setUp(self):
+        self.sb = Sandbox()
+        self.sb.write_backlog("demo", "# demo\n\n## Boundary\nOwns.\n\n## Standing yes\n\n## Open\n\n## Done\n")
+
+    def tearDown(self):
+        self.sb.cleanup()
+
+    def test_allows_under_cap_and_refuses_at_cap(self):
+        terms = [
+            make_terminal("t1", None, "demo", "done", role="coordinator"),
+            make_terminal("t2", "d1", "demo", "working"),
+            make_terminal("t3", "d2", "demo", "working"),
+        ]
+        tf = self.sb.root / "terms.json"
+        tf.write_text(json.dumps(terms))
+        res = self.sb.run_script(
+            COORD_SCRIPTS / "delegate_cap.py", "--domain", "demo", "--terminals", str(tf),
+            env_extra={"HC_TERMINAL_ID": "t1"},
+        )
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("ALLOWED", res.stdout)
+
+        terms.append(make_terminal("t4", "d3", "demo", "working"))
+        tf.write_text(json.dumps(terms))
+        res2 = self.sb.run_script(
+            COORD_SCRIPTS / "delegate_cap.py", "--domain", "demo", "--terminals", str(tf),
+            env_extra={"HC_TERMINAL_ID": "t1"},
+        )
+        self.assertEqual(res2.returncode, 1)
+        self.assertIn("REFUSED", res2.stdout)
+
+    def test_send_allowed_when_target_already_working_and_refused_for_idle_at_cap(self):
+        send_log = self.sb.root / "sends.log"
+        self.sb.write_stub("hc", f'echo "$@" >> "{send_log}"\necho "{{\\"ok\\":true}}"\n')
+        terms = [
+            make_terminal("t1", None, "demo", "done", role="coordinator"),
+            make_terminal("t2", "d1", "demo", "working"),
+            make_terminal("t3", "d2", "demo", "working"),
+            make_terminal("t4", "d3", "demo", "working"),
+            make_terminal("t5", "d4", "demo", "done"),
+        ]
+        tf = self.sb.root / "terms.json"
+        tf.write_text(json.dumps(terms))
+
+        # Target d1 is already working -> ALLOWED and sent
+        ok = self.sb.run_script(
+            COORD_SCRIPTS / "delegate_cap.py", "--domain", "demo", "--to", "d1", "--send", "hi", "--terminals", str(tf),
+            env_extra={"HC_TERMINAL_ID": "t1"},
+        )
+        self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
+        self.assertIn("t2 hi", send_log.read_text())
+
+        # Target d4 is idle at cap 3 -> REFUSED and NOT SENT
+        before = send_log.read_text()
+        ref = self.sb.run_script(
+            COORD_SCRIPTS / "delegate_cap.py", "--domain", "demo", "--to", "d4", "--send", "go", "--terminals", str(tf),
+            env_extra={"HC_TERMINAL_ID": "t1"},
+        )
+        self.assertEqual(ref.returncode, 1)
+        self.assertIn("NOT SENT", ref.stdout)
+        self.assertEqual(send_log.read_text(), before)
+
+
+if __name__ == "__main__":
+    unittest.main()
