@@ -12,6 +12,7 @@ the forms neither loses nor repeats an event.
 """
 import backlog
 import fleet
+from watch_cache import cached_open_pr_numbers
 from watch_prs import repo_name
 
 
@@ -50,7 +51,7 @@ def domain_pull_requests(domain, agents):
     open_numbers, failed = {}, {}
     for slug in sorted((herd.repos_of(domain) | ended_repos) - {None}):
         try:
-            open_numbers[slug] = fleet.open_pull_request_numbers(slug)
+            open_numbers[slug] = cached_open_pr_numbers(slug)
         except Exception as error:
             failed[slug] = f"open pull request search failed: {str(error)[:200]}"
     found = {f"{slug}#{number}" for slug, number in backlog.pull_requests_named(text, open_numbers)}

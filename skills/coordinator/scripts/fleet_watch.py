@@ -143,6 +143,8 @@ from due_steps import due_lines  # noqa: E402
 from mac_clock import MacClock  # noqa: E402
 from update_check import update_line  # noqa: E402
 from waiting_label import declare_waiting  # noqa: E402
+from watch_cache import (AgentCache, StateSaver, github_blind_limit, load_json as load,  # noqa: E402
+                         pr_poll_delay, prune_state, save_json_atomic as save)
 from watch_domain import (adopt_earlier_pr, copy_to_same_pr, copy_to_same_terminal, domain_member_names,  # noqa: E402
                           domain_pull_requests, given_terminals, named, slug_spec, under_watch_names,
                           watched_agent_names, watched_pr_specs, written_before_domain)
@@ -173,10 +175,10 @@ def transcript_marks(agent):
         return None, None
 
 
-def live_agents():
+def live_agents(cache=None):
     """Every live agent, or None when herdr-core could not be read."""
     try:
-        return fleet.load_agents()
+        return cache.load() if cache is not None else fleet.load_agents()
     except Exception:
         return None
 
@@ -344,21 +346,6 @@ def print_update_line():
         signal.alarm(0)
 
 
-def load(path):
-    try:
-        with open(path) as f:
-            return json.load(f)
-    except (OSError, json.JSONDecodeError):
-        return None
-
-
-def save(path, state):
-    tmp = path + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(state, f)
-    os.replace(tmp, path)
-
-
 def merged(old, new):
     """Keep entries that a failed poll left out of the new snapshot."""
     return {**old, **new}
@@ -466,6 +453,10 @@ def main():
     clock = MacClock(saved.get("clock"))
     owner_misses = 0
     name_misses = {name: 0 for name in args.agent if not agents_seen.get(name, {}).get("present")}
+    agent_cache = AgentCache()
+    state_saver = StateSaver(args.state)
+    gh_failures = 0
+    last_open_numbers = {}
     next_pr_poll = 0
     next_alive_at = started_at + ALIVE_SECONDS
     first_event_at = None
@@ -477,14 +468,14 @@ def main():
     def watched_specs():
         return list(dict.fromkeys(args.pr + sorted(domain_prs)))
 
-    def save_state(pending):
-        save(args.state, {"source": STATE_SOURCE, "agents": agents_seen, "prs": prs_seen, "pending": pending,
+    def save_state(pending, force=False):
+        state_saver.save({"source": STATE_SOURCE, "agents": agents_seen, "prs": prs_seen, "pending": pending,
                           "last_wake_at": last_wake_at, "clock": clock.reading(),
                           "watched_agents": watched_names(), "watched_prs": watched_specs(),
-                          "due_fired": due_fired})
+                          "due_fired": due_fired}, force=force)
 
     def end(line):
-        save_state(events)
+        save_state(events, force=True)
         print(line, flush=True)
         return 0
 
@@ -493,7 +484,7 @@ def main():
         if parent_shell_gone():
             return end("parent gone")
 
-        agents = live_agents()
+        agents = live_agents(agent_cache)
         if agents is None:
             if clock.awake_seconds_since(agents_ok_at) >= BLIND_SECONDS:
                 return end(f"blind hc · hc ls failed for {BLIND_SECONDS // 60} minutes")
@@ -539,6 +530,7 @@ def main():
                 except Exception:
                     named_prs = None
                 if named_prs is not None:
+                    last_open_numbers = open_numbers
                     searched = {**{slug: None for slug in open_numbers}, **search_failed}
                     for spec in named_prs | domain_prs:
                         adopt_earlier_pr(prs_seen, spec)
@@ -553,16 +545,20 @@ def main():
             events += pr_events(prs_seen, now_prs)
             prs_seen = merged(prs_seen, now_prs)
             copy_to_same_pr(prs_seen, now_prs)
-            next_pr_poll = time.time() + PR_POLL_SECONDS
+            prune_state(agents_seen, prs_seen, set(watched_names()), set(specs), last_agents, last_open_numbers)
+            gh_failures = gh_failures + 1 if failed else 0
+            next_pr_poll = time.time() + pr_poll_delay(gh_failures, PR_POLL_SECONDS)
             if args.domain:
                 lines, due_fired = due_lines(args.domain, time.strftime("%Y-%m-%d"), due_fired)
                 events += lines or []
             for repo in dict.fromkeys([spec.rsplit("#", 1)[0] for spec in specs] + list(searched)):
                 if repo not in failed:
                     github_ok_at[repo] = time.time()
-                elif clock.awake_seconds_since(github_ok_at.get(repo, started_at)) >= BLIND_SECONDS:
-                    return end(f"blind {os.path.basename(repo)} · GitHub queries failed for {BLIND_SECONDS // 60} minutes"
-                               f" · {failed[repo]}")
+                else:
+                    limit = github_blind_limit(failed[repo], BLIND_SECONDS)
+                    if clock.awake_seconds_since(github_ok_at.get(repo, started_at)) >= limit:
+                        return end(f"blind {os.path.basename(repo)} · GitHub queries failed for {limit // 60} minutes"
+                                   f" · {failed[repo]}")
 
         save_state(events)
 
@@ -576,7 +572,8 @@ def main():
             for line in events:
                 print(line, flush=True)
             last_wake_at = now
-            save_state([])
+            prune_state(agents_seen, prs_seen, set(watched_names()), set(watched_specs()), last_agents, last_open_numbers)
+            save_state([], force=True)
             try:
                 for line in ended_lines(events, prs_seen, ended_delegates()):
                     print(line, flush=True)
