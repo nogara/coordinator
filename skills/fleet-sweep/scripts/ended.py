@@ -39,7 +39,7 @@ def finished_ended_records():
         prs = prs_by_slug.get(record.get("repo"))
         if not (record["cwd"] and os.path.isdir(record["cwd"])):
             branch_has_an_open_pr = any(p["state"] == "OPEN" for p in (prs or {}).get(record.get("branch"), []))
-            pr_state_unknown = bool(record.get("repo") and record.get("branch")) and not prs
+            pr_state_unknown = bool(record.get("repo") and record.get("branch")) and prs is None
             if not branch_has_an_open_pr and not pr_state_unknown:
                 finished.append((path, record, f"worktree gone: {record['cwd']}"))
             continue

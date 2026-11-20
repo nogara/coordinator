@@ -20,6 +20,7 @@ DEFAULTS = {
     "keep_running": [],
     "delegate_claude_args": [],
     "delegate_codex_overrides": [],
+    "delegate_env": {"NODE_OPTIONS": "--max-old-space-size=4096"},
     "inbox_store": None,
     "backlog_limit_kb": 40,
     "done_limit_kb": 20,
@@ -44,7 +45,20 @@ def load_config(path: Path = CONFIG_FILE) -> dict:
     for key, value in saved.items():
         if DEFAULTS[key] is not None and value is not None and type(value) is not type(DEFAULTS[key]):
             raise ValueError(f"{path}: {key} must be a JSON {type(DEFAULTS[key]).__name__}")
-    return {**DEFAULTS, **saved}
+    merged = {**DEFAULTS, **saved}
+    if merged["delegate_env"] is None:
+        merged["delegate_env"] = {}
+    for env_key, env_value in merged["delegate_env"].items():
+        if not isinstance(env_key, str) or not env_key or "=" in env_key or not isinstance(env_value, str):
+            raise ValueError(f"{path}: delegate_env must map non-empty variable names to strings")
+    return merged
+
+
+def with_delegate_env(program: list[str], env: dict[str, str] | None = None) -> list[str]:
+    """Prefix a delegate command with configured environment variables."""
+    mapping = CONFIG["delegate_env"] if env is None else env
+    pairs = [f"{key}={value}" for key, value in mapping.items()]
+    return ["env", *pairs, *program] if pairs else list(program)
 
 
 try:

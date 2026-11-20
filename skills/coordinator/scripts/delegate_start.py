@@ -51,6 +51,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import codex  # noqa: E402
+import config  # noqa: E402
 import fleet  # noqa: E402
 from fleet import CheckError  # noqa: E402
 
@@ -130,7 +131,7 @@ def main() -> int:
             name=args.name, cwd=cwd, tab_label=tab_label, space=coordinator["space"],
             labels={"fleet.domain": domain, "fleet.task": args.task,
                     **(codex.codex_labels(args.effort, session) if runs_codex else {})},
-            program=program, parent=coordinator["address"],
+            program=config.with_delegate_env(program), parent=coordinator["address"],
         )
         if runs_codex:
             session = codex.finish_codex_start(terminal, cwd, launched_at, session, first_message)

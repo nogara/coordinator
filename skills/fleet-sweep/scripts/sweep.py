@@ -313,7 +313,7 @@ def report(args):
     for repo in args.repos:
         repo = os.path.abspath(os.path.expanduser(repo))
         bases = default_bases(repo, args.base)
-        prs = pull_requests(repo)
+        prs = pull_requests(repo) or {}
         keep = [os.path.realpath(os.path.expanduser(k)) for k in args.keep]
         rows += worktree_rows(repo, bases, prs, sessions, procs, not args.no_sizes, keep)
         rows += scratch_rows(repo)
@@ -432,7 +432,7 @@ def remove(args):
         print(f"kept branch {branch} for the parked task")
     elif branch and branch not in PROTECTED_BRANCHES:
         sha = (git(repo, "rev-parse", "--short", branch) or "").strip()
-        pr_state, _ = pr_summary(branch_prs(repo, branch, pull_requests(repo)))
+        pr_state, _ = pr_summary(branch_prs(repo, branch, pull_requests(repo) or {}))
         flag = "-D" if pr_state == "MERGED" else "-d"
         if subprocess.run(["git", "-C", repo, "branch", flag, branch]).returncode == 0:
             print(f"deleted branch {branch} {sha}")
@@ -444,7 +444,7 @@ def remove(args):
 def prune_branches(args):
     repo = os.path.abspath(os.path.expanduser(args.repo))
     bases = default_bases(repo, args.base)
-    prs = pull_requests(repo)
+    prs = pull_requests(repo) or {}
     for branch, sha, pr_state in landed_branches(repo, bases, prs, checked_out_branches(repo)):
         if args.list:
             print(f"{branch} {sha} {'PR merged' if pr_state == 'MERGED' else 'merged into base'}")

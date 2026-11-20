@@ -16,18 +16,24 @@ def run(*args, cwd=None):
 
 
 def pull_requests(repo, slug=None):
-    """PRs by branch, from the checkout at repo or from the GitHub repo slug."""
+    """PRs by branch, from the checkout at repo or from the GitHub repo slug.
+
+    Returns None when gh fails so callers can tell a failed lookup from a repo
+    with zero pull requests ({}).
+    """
     where = ["--repo", slug] if slug else []
     out = run(
         "gh", "pr", "list", *where, "--author", "@me", "--state", "all", "--limit", "500",
         "--json", "headRefName,headRefOid,state,number,mergedAt", cwd=repo,
     )
-    if out is None and slug:
-        print(f"warning: gh pr list failed for {slug}, so its ended-delegate records whose PR merged stay", file=sys.stderr)
-    elif out is None:
-        print(f"warning: gh pr list failed in {repo}, so worktrees whose PR merged show KEEP", file=sys.stderr)
+    if out is None:
+        if slug:
+            print(f"warning: gh pr list failed for {slug}, so its ended-delegate records whose PR merged stay", file=sys.stderr)
+        else:
+            print(f"warning: gh pr list failed in {repo}, so worktrees whose PR merged show KEEP", file=sys.stderr)
+        return None
     prs = {}
-    for pr in json.loads(out) if out else []:
+    for pr in json.loads(out):
         prs.setdefault(pr["headRefName"], []).append(pr)
     return prs
 

@@ -87,6 +87,47 @@ class TestDelegateCap(unittest.TestCase):
         self.assertIn("NOT SENT", ref.stdout)
         self.assertEqual(send_log.read_text(), before)
 
+    def test_delegate_start_passes_delegate_env_to_hc_run(self):
+        work = self.sb.root / "wt"
+        work.mkdir()
+        brief = self.sb.root / "BRIEF.md"
+        brief.write_text("# Brief\n")
+        run_log = self.sb.root / "hc_run.log"
+        coord = make_terminal("t1", None, "demo", "done", role="coordinator")
+        spawned = make_terminal("t2", "d1", "demo", "working")
+        hc_script = f"""
+case "$1" in
+  ls)
+    if [ -f "{self.sb.root}/spawned" ]; then
+      echo '{{"terminals":[{{"address":"t1","agent":"claude-code","status":{{"state":"done"}}}},{{"address":"t2","agent":"claude-code","status":{{"state":"working"}}}}]}}'
+    else
+      echo '{{"terminals":[{{"address":"t1","agent":"claude-code","status":{{"state":"done"}}}}]}}'
+    fi
+    ;;
+  get)
+    if [ "$2" = "t1" ]; then
+      echo '{json.dumps(coord)}'
+    else
+      echo '{json.dumps(spawned)}'
+    fi
+    ;;
+  run)
+    echo "$@" > "{run_log}"
+    touch "{self.sb.root}/spawned"
+    echo '{{"address":"t2"}}'
+    ;;
+esac
+"""
+        self.sb.write_stub("hc", hc_script)
+        self.sb.write_stub("herdr-app", "echo '{}'\n")
+        res = self.sb.run_script(
+            COORD_SCRIPTS / "delegate_start.py", "d1", "--task", "task one", "--cwd", str(work),
+            "--brief", str(brief), "--model", "sonnet",
+            env_extra={"HC_TERMINAL_ID": "t1"},
+        )
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("env NODE_OPTIONS=--max-old-space-size=4096 claude", run_log.read_text())
+
 
 if __name__ == "__main__":
     unittest.main()

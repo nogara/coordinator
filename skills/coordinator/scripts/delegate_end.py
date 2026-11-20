@@ -41,6 +41,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import codex  # noqa: E402
+import config  # noqa: E402
 import fleet  # noqa: E402
 from fleet import CheckError, age, run  # noqa: E402
 
@@ -177,7 +178,7 @@ def resume(herd: fleet.Fleet, domain: str, name: str) -> int:
         name=name, cwd=record["cwd"], tab_label=tab_label, space=coordinator["space"],
         labels={"fleet.domain": domain, "fleet.task": task,
                 **(codex.codex_labels(record["effort"], record["session"]) if runs_codex else {})},
-        program=program, parent=coordinator["address"],
+        program=config.with_delegate_env(program), parent=coordinator["address"],
     )
     if runs_codex:
         codex.finish_codex_start(terminal, record["cwd"], launched_at, record["session"], None)

@@ -64,6 +64,31 @@ class TestPrsAndEnded(unittest.TestCase):
         self.assertEqual(res2.returncode, 0, res2.stderr)
         self.assertFalse(rec_path.exists())
 
+    def test_prune_ended_handles_zero_pr_repo_vs_gh_failure(self):
+        ended_dir = self.sb.state_dir / "ended"
+        ended_dir.mkdir(parents=True)
+        rec_path = ended_dir / "sess-zero.json"
+        rec_path.write_text(json.dumps({
+            "name": "task-z",
+            "domain": "demo",
+            "session": "sess-zero",
+            "cwd": str(self.sb.root / "gone-wt"),
+            "repo": "org/no-prs-yet",
+            "branch": "feat-z",
+            "ended_at": "2026-11-15T00:00:00+00:00",
+        }))
+        # gh failure -> keep record (PR state unknown)
+        self.sb.write_stub("gh", "exit 1\n")
+        fail_res = self.sb.run_script(SWEEP_SCRIPTS / "sweep.py", "prune-ended")
+        self.assertEqual(fail_res.returncode, 0, fail_res.stderr)
+        self.assertTrue(rec_path.exists())
+
+        # gh succeeds with [] (0 PRs in repo) -> prune record
+        self.sb.write_stub("gh", "echo '[]'\n")
+        ok_res = self.sb.run_script(SWEEP_SCRIPTS / "sweep.py", "prune-ended")
+        self.assertEqual(ok_res.returncode, 0, ok_res.stderr)
+        self.assertFalse(rec_path.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

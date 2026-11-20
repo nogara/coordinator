@@ -35,8 +35,8 @@ A CHECK line is something to put back unless it is finished or answered:
   - a repo the backlog no longer links or names
 
 --cut-done deletes the oldest lines of Done until Done is under its limit.
-When Git tracks the backlog with no uncommitted change, Git keeps the lines
-it deletes. Otherwise it first saves them to <backlog_dir>/trims/.
+When Git tracks the backlog and HEAD holds the deleted lines, Git keeps them.
+Otherwise it first saves them to <backlog_dir>/trims/.
 
 Exit status: 0 within the limits with no LOST line, 1 over a limit or a
 LOST line, 2 the check could not run.
@@ -148,11 +148,19 @@ def done_cut_to_its_limit(text: str, today: dt.date) -> tuple[str, list[str]]:
     return text.replace(done, kept, 1), [lines[i] for i in sorted(deleted)]
 
 
-def git_keeps(path: Path) -> bool:
-    """Git tracks the file and it has no uncommitted change."""
+def git_keeps(path: Path, deleted: list[str] | None = None) -> bool:
+    """Git tracks the file and HEAD holds the deleted lines."""
     folder = str(path.parent)
-    tracked = fleet.git(folder, "ls-files", "--error-unmatch", path.name) is not None
-    return tracked and fleet.git(folder, "diff", "--quiet", "HEAD", "--", path.name) is not None
+    if fleet.git(folder, "ls-files", "--error-unmatch", path.name) is None:
+        return False
+    if deleted is None:
+        return True
+    try:
+        head = text_at_commit(path, "HEAD")
+    except CheckError:
+        return False
+    head_lines = set(head.splitlines())
+    return all(line in head_lines for line in deleted if line.strip())
 
 
 def text_at_commit(path: Path, commit: str) -> str:
@@ -182,7 +190,7 @@ def compared_with(herd: fleet.Fleet, domain: str, before: str, after: str, ledge
     """What the trim lost, and what to check that it meant to drop."""
     lost, check = [], []
     listed = collapsed(ledger)
-    quoted_in_ledger = [collapsed(quote) for quote in ANY_QUOTED_TEXT.findall(ledger)]
+    quoted_in_ledger = [collapsed(quote) for line in ledger.splitlines() for quote in ANY_QUOTED_TEXT.findall(line)]
     standing_yes_after = collapsed(fleet.section_text(after, "## Standing yes"))
     for entry in entries(fleet.section_text(before, "## Standing yes")):
         if entry not in standing_yes_after:
@@ -236,7 +244,7 @@ def cut_done(path: Path, domain: str, text: str) -> str:
         print("deleted no line of Done")
         return text
     kept_by = "Git keeps them at HEAD"
-    if not git_keeps(path):
+    if not git_keeps(path, deleted):
         TRIMS_DIR.mkdir(parents=True, exist_ok=True)
         saved = TRIMS_DIR / f"{domain}-done-cut-{dt.datetime.now().strftime('%Y%m%d-%H%M%S')}.md"
         saved.write_text("\n".join(deleted) + "\n")

@@ -37,6 +37,19 @@ class TestConfig(unittest.TestCase):
         with self.assertRaises(ValueError):
             config.load_config(p)
 
+    def test_delegate_env_default_validation_and_wrapping(self):
+        loaded = config.load_config(self.sb.root / "missing.json")
+        self.assertEqual(loaded["delegate_env"], {"NODE_OPTIONS": "--max-old-space-size=4096"})
+        self.assertEqual(
+            config.with_delegate_env(["claude", "--model", "sonnet"], loaded["delegate_env"]),
+            ["env", "NODE_OPTIONS=--max-old-space-size=4096", "claude", "--model", "sonnet"],
+        )
+        self.assertEqual(config.with_delegate_env(["claude"], {}), ["claude"])
+        bad = self.sb.root / "bad_env.json"
+        bad.write_text(json.dumps({"delegate_env": {"NODE_OPTIONS": 4096}}))
+        with self.assertRaises(ValueError):
+            config.load_config(bad)
+
 
 class TestBacklogCheck(unittest.TestCase):
     def setUp(self):
@@ -98,6 +111,43 @@ class TestBacklogCheck(unittest.TestCase):
             COORD_SCRIPTS / "backlog_check.py", "demo", "--before", str(before), "--ledger", str(ledger), "--terminals", str(terms)
         )
         self.assertEqual(res2.returncode, 0, res2.stdout + res2.stderr)
+
+    def test_cut_done_in_dirty_git_repo_uses_head_without_trims_file(self):
+        done_lines = "\n".join(f"- 2026-11-{(i % 18) + 1:02d} Item {i} " + ("x" * 200) for i in range(130))
+        backlog_path = self.sb.write_backlog(
+            "demo",
+            f"# demo backlog\n\n## Boundary\nOwns demo.\n\n## Standing yes\n\n## Open\n- Open one.\n\n## Done\n{done_lines}\n",
+        )
+        for cmd in (
+            ["git", "-C", str(self.sb.backlog_dir), "init", "-q"],
+            ["git", "-C", str(self.sb.backlog_dir), "config", "user.email", "test@example.com"],
+            ["git", "-C", str(self.sb.backlog_dir), "config", "user.name", "Test"],
+            ["git", "-C", str(self.sb.backlog_dir), "add", "demo-backlog.md"],
+            ["git", "-C", str(self.sb.backlog_dir), "commit", "-q", "-m", "initial"],
+        ):
+            subprocess.run(cmd, check=True)
+        # Modify ## Open so the file is dirty relative to HEAD while Done lines remain in HEAD
+        backlog_path.write_text(backlog_path.read_text().replace("- Open one.", "- Open one.\n- Open two."))
+        cut = self.sb.run_script(COORD_SCRIPTS / "backlog_check.py", "demo", "--cut-done")
+        self.assertEqual(cut.returncode, 0, cut.stdout + cut.stderr)
+        self.assertIn("Git keeps them at HEAD", cut.stdout)
+        self.assertFalse(list((self.sb.backlog_dir / "trims").glob("demo-done-cut-*.md")))
+
+    def test_ledger_lone_quote_on_one_line_does_not_swallow_next_line(self):
+        before = self.sb.root / "before.md"
+        before.write_text(
+            "# demo\n\n## Boundary\nOwns.\n\n## Standing yes\n\n## Open\n"
+            '- Item A (11-14: "Drop this").\n\n## Done\n'
+        )
+        self.sb.write_backlog("demo", "# demo\n\n## Boundary\nOwns.\n\n## Standing yes\n\n## Open\n\n## Done\n")
+        terms = self.sb.root / "terminals.json"
+        terms.write_text("[]")
+        ledger = self.sb.root / "ledger.md"
+        ledger.write_text('- stray quote " on line one\n- Dropped "Drop this" because done.\n')
+        res = self.sb.run_script(
+            COORD_SCRIPTS / "backlog_check.py", "demo", "--before", str(before), "--ledger", str(ledger), "--terminals", str(terms)
+        )
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
 
     def test_sections_parser(self):
         text = "# Title\n\n## Boundary\nA\n\n## Open\nB\n\n## Done\nC\n"
