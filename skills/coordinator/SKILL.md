@@ -177,11 +177,7 @@ that date. Take the marker out once the step is done, or change the date. When
 the watcher prints a `rule ·` line saying these skills are behind their
 upstream, tell the user in your next reply, with the commands it gives,
 and leave the pull to them. When a delegate settles, read its
-`REPORT.md`. With the inbox mod installed, also check its inbox: its own
-session can record questions there whatever the brief says, so an ask can
-sit there with no line in the report. Before each reply to the user, check
-each delegate's `inbox.needs-you` label, in `hc get <name>`, for an item
-you have not relayed. Handle each question as **A delegate's question is an
+`REPORT.md`. Handle each question as **A delegate's question is an
 ask** says. A permission prompt, including a folder trust prompt, is the
 user's to answer in that tab, so name the tab. Their "go ahead" covers the
 brief up to its stop points. Each stop point takes a fresh yes, unless this

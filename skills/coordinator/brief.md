@@ -63,9 +63,7 @@ Whenever you stop, write `REPORT.md` beside this brief, with:
   task lands.
 
 Put questions and tasks for the user here, not in an inbox of your own. The
-coordinator asks the user in one place and relays their answers. When it
-relays an answer to an item your inbox holds anyway, close that item with
-it.
+coordinator asks the user in one place and relays their answers.
 
 Send your coordinator no message for progress or for a question. Write
 `REPORT.md` and end your turn with the same in your reply, and the
