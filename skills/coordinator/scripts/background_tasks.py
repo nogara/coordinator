@@ -24,3 +24,8 @@ def still_running(terminal: dict) -> str:
     titles = [record["title"][:TASK_TITLE_CHARS] for record in (terminal.get("records") or {}).values()
               if record.get("state") == "working" and record.get("title")]
     return f"{message}: {'; '.join(titles)}" if titles else message
+
+
+def is_working(agent: dict) -> bool:
+    """True when the agent is mid-turn: its status is working and it is not just waiting on leftover background tasks."""
+    return agent["status"] == "working" and not agent.get("still_running")

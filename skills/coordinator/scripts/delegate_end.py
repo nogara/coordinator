@@ -13,6 +13,9 @@ tasks and findings in its inbox. fleet_status.py keeps listing it, as ended. The
 <state_dir>/ended/, named by its session id, holds what resuming
 needs, with the text its terminal showed.
 
+A delegate whose turn ended while a background task it started still runs counts as
+idle. Ending it stops that task with the session.
+
 Ending refuses a delegate that is working, one stopped on a dialog, and one
 that is not yours. It also refuses:
 
@@ -43,6 +46,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config  # noqa: E402
 import fleet  # noqa: E402
 import inbox_state  # noqa: E402
+from background_tasks import is_working  # noqa: E402
 from fleet import CheckError, age, run  # noqa: E402
 
 THIS_SCRIPT = f"{fleet.SCRIPTS}/delegate_end.py"
@@ -63,7 +67,7 @@ def list_idle(herd: fleet.Fleet, domain: str, now: dt.datetime) -> int:
     rows = []
     for member in herd.members_of(domain):
         agent = member["agent"]
-        if agent["status"] in ("working", "blocked"):
+        if agent["status"] == "blocked" or is_working(agent):
             continue
         since = quiet_since(agent, now)
         if since is None or now - since < fleet.IDLE_BEFORE_ENDING:
@@ -91,7 +95,7 @@ def end(herd: fleet.Fleet, domain: str, target: str, now: dt.datetime, relayed: 
         raise Refused(f"{target} is not a live delegate of {domain}; only its own coordinator ends a delegate")
     agent, task = member["agent"], member["task"]
     name = agent.get("name") or fleet.session_of(agent)[:fleet.SHORT_SESSION_ID]
-    if agent["status"] == "working":
+    if is_working(agent):
         raise Refused(f"{name} is working")
     if agent["status"] == "blocked":
         raise Refused(f"{name} is stopped on a dialog or a question, which is the user's to answer")
@@ -136,7 +140,8 @@ def end(herd: fleet.Fleet, domain: str, target: str, now: dt.datetime, relayed: 
             path.unlink()
             raise CheckError(f"{name} still runs, so it was not ended: {error}")
         print(f"{name}'s session ended, but its terminal record stayed: {error}")
-    print(f"ended {name}. Its worktree, branch and backlog line stay. Resume it with:\n"
+    stopped = f" Its leftover tasks stopped with it ({agent['still_running']})." if agent.get("still_running") else ""
+    print(f"ended {name}.{stopped} Its worktree, branch and backlog line stay. Resume it with:\n"
           f"  {THIS_SCRIPT} --resume {name}")
     return 0
 

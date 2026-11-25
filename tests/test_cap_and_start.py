@@ -179,6 +179,48 @@ esac
         self.assertIn("finding: Clock skips an hour", res.stdout)
         self.assertIn("--relayed", res.stdout)
 
+    def test_a_delegate_with_only_leftover_background_tasks_does_not_count_as_working(self):
+        coord = make_terminal("t1", None, "demo", "done", role="coordinator")
+        terms = [coord]
+        for n in (1, 2, 3):
+            terms.append(make_terminal(f"t{n + 1}", f"d{n}", "demo", "working"))
+        terms[1]["status"]["msg"] = "1 shell still running"
+        terms[1]["records"] = {"b1": {"state": "working", "title": "npm run dev"}}
+        terminals = self.sb.root / "terminals.json"
+        terminals.write_text(json.dumps(terms))
+        res = self.sb.run_script(COORD_SCRIPTS / "delegate_cap.py", "--domain", "demo", "--terminals", str(terminals))
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("2 of 3 working", res.stdout)
+
+    def test_delegate_end_ends_a_delegate_with_leftover_tasks_but_refuses_one_mid_turn(self):
+        coord = make_terminal("t1", None, "demo", "done", role="coordinator")
+        delegate = make_terminal("t2", "d1", "demo", "working")
+        delegate["labels"]["fleet.session"] = "sess-d1"
+        delegate["status"]["msg"] = "1 shell still running"
+        delegate["records"] = {"b1": {"state": "working", "title": "npm run dev"}}
+        mid_turn = dict(delegate, status={"state": "working", "app": "claude-code", "msg": "Running the tests"})
+
+        def run_end(terminal: dict):
+            self.sb.write_stub("hc", f"""
+case "$1 $2" in
+  "ls "*) echo '{{"terminals":[{{"address":"t1","agent":"claude-code","status":{{"state":"done"}}}},{{"address":"t2","agent":"claude-code","status":{{"state":"working"}}}}]}}' ;;
+  "get t1") echo '{json.dumps(coord)}' ;;
+  "get t2") echo '{json.dumps(terminal)}' ;;
+  "read --lines") echo shown ;;
+  "kill t2"|"rm t2") ;;
+  *) echo "unexpected hc $*" >&2; exit 9 ;;
+esac
+""")
+            return self.sb.run_script(COORD_SCRIPTS / "delegate_end.py", "d1", "--now",
+                                      env_extra={"HC_TERMINAL_ID": "t1", "HOME": str(self.sb.root)})
+
+        refused = run_end(mid_turn)
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertIn("d1 is working", refused.stdout)
+        ended = run_end(delegate)
+        self.assertEqual(ended.returncode, 0, ended.stdout + ended.stderr)
+        self.assertIn("leftover tasks stopped with it", ended.stdout)
+
     def test_delegate_end_refuses_legacy_codex_record(self):
         ended_dir = self.sb.state_dir / "ended"
         ended_dir.mkdir(parents=True)

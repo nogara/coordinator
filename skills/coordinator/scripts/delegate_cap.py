@@ -16,7 +16,8 @@ yours when its terminal carries fleet.domain=<your domain>, which
 delegate_start.py sets, or carries no such label and your backlog's Open
 or Later section names its session id (the first 8 characters are enough). An
 unlabelled agent named in two backlogs counts toward both. A delegate is
-working when `hc ls` shows its status as "working".
+working when `hc ls` shows its status as "working", unless its turn ended and only
+background tasks it started still run.
 
 Sending to a delegate that is already working leaves the count unchanged,
 so it is allowed even at the cap.
@@ -38,6 +39,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fleet  # noqa: E402
+from background_tasks import is_working  # noqa: E402
 from fleet import CheckError  # noqa: E402
 
 CAP = 3
@@ -110,7 +112,7 @@ def main() -> int:
         print(f"delegate_cap: {error}", file=sys.stderr)
         return 2
 
-    working = [member for member in members if member["agent"]["status"] == "working"]
+    working = [member for member in members if is_working(member["agent"])]
     for member in working:
         print(f"working  {described(member)}")
 
