@@ -118,19 +118,21 @@ def agent_snapshot(names, agents, seen, clock, ended=(), saved_inbox=None):
             continue
         status = a["status"]
         turn_ended = status in SETTLED and (a["turn"] != was.get("turns") or was.get("status") not in SETTLED)
+        still_running = a.get("still_running") or ""
         if turn_ended or "responded" not in was:
             responded, compacted = transcript_marks(a)
         else:
             responded, compacted = was.get("responded"), was.get("compacted")
-        if turn_ended or "findings" not in was:
+        cwd = a["cwd"]
+        path, mtime = report_mtime(cwd, name, watched_cwds.count(cwd) > 1)
+        if status not in SETTLED and not still_running:
+            mtime = was.get("report_mtime", mtime)
+        report_written_with_tasks_running = bool(still_running) and mtime != was.get("report_mtime")
+        if turn_ended or "findings" not in was or report_written_with_tasks_running:
             inbox = saved_inbox()
             findings = len(inbox_state.open_findings(inbox.get(a["session"]))) if inbox is not None else was.get("findings")
         else:
             findings = was.get("findings")
-        cwd = a["cwd"]
-        path, mtime = report_mtime(cwd, name, watched_cwds.count(cwd) > 1)
-        if status not in SETTLED:
-            mtime = was.get("report_mtime", mtime)
         counts = was.get("report_counts") if mtime == was.get("report_mtime") and "report_counts" in was \
             else report_counts(path)
         unknown_since = (was.get("unknown_since") or clock.read()) if status is None else None
@@ -151,6 +153,7 @@ def agent_snapshot(names, agents, seen, clock, ended=(), saved_inbox=None):
             "responded": responded,
             "compacted": compacted,
             "session": a["session"],
+            "still_running": still_running,
         }
     return snap
 
@@ -185,4 +188,5 @@ def agent_events(old, new):
         report_moved = bool(was.get("report")) and now["report"] != was.get("report")
         if now["report_mtime"] and now["report_mtime"] != was.get("report_mtime") and not report_moved:
             counts = f" · {now['report_counts']}" if now.get("report_counts") else ""
-            yield f"report {name} {now['report']}{counts}{findings_note(now.get('findings'))}"
+            running = f" · {now['still_running']}" if now.get("still_running") else ""
+            yield f"report {name} {now['report']}{counts}{findings_note(now.get('findings'))}{running}"

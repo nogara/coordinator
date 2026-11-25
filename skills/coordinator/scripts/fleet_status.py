@@ -15,7 +15,9 @@ delegate's findings reach the user only when you record them in your own
 inbox.
 
 fleet.py says which sessions are a domain's delegates. A delegate ended with
-delegate_end.py stays listed, as ended.
+delegate_end.py stays listed, as ended. A delegate whose turn ended while a
+background task it started still runs shows as idle, with what still runs,
+though hc shows it as working.
 
 A delegate is joined to a pull request by its worktree's branch, or by its
 commit when the worktree has no branch checked out. Pull requests are those
@@ -139,10 +141,11 @@ def collect(args: argparse.Namespace) -> dict:
 
     for member in members:
         agent, task = member["agent"], member["task"]
+        still_running = agent.get("still_running") or ""
         add_delegate(
-            agent, task, agent["status"] or "unknown", fleet.session_of(agent),
+            agent, task, "idle" if still_running else agent["status"] or "unknown", fleet.session_of(agent),
             placed_by="its fleet.domain label" if member["by_label"] else "backlog names its session",
-            in_backlog=member["by_backlog"],
+            in_backlog=member["by_backlog"], still_running=still_running,
         )
         asks += asks_of(agent, f"[{task}]")
         findings += findings_of(agent, f"[{task}]")
@@ -197,7 +200,8 @@ def delegate_note(delegate: dict, now: dt.datetime) -> str:
         return f"[{delegate['task']}] ended {age(delegate['ended_at'], now)} ago"
     if delegate["status"] == "working":
         return f"[{delegate['task']}] working"
-    return f"[{delegate['task']}] {delegate['status']}, quiet {age(delegate['last_response'], now)}"
+    still_running = f", {delegate['still_running']}" if delegate.get("still_running") else ""
+    return f"[{delegate['task']}] {delegate['status']}, quiet {age(delegate['last_response'], now)}{still_running}"
 
 
 def render(state: dict) -> str:

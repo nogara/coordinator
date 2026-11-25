@@ -147,7 +147,12 @@ the tab and do not send again.
   `report <name> <path> · 2 questions, 1 issue, 3 findings`. A report
   without those headings gets no counts. A `settled` or `report` line that
   ends with `· <n> findings in its inbox` counts the open findings the
-  delegate recorded in its own inbox. `fleet_status.py` lists them. For a
+  delegate recorded in its own inbox. `fleet_status.py` lists them. A
+  `report` line that ends with what still runs, such as
+  `· 1 shell still running: npm run dev`, means its turn ended with a
+  background task still running, so `hc ls` shows it working and it never
+  settles. Ask it to stop that task with `delegate_cap.py --send`, unless
+  the user needs it running. For a
   blocked one, read its terminal: `hc read --lines 120 <name>`. The text
   shows whether it is a permission dialog or a question.
 

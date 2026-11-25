@@ -33,6 +33,7 @@ import subprocess
 import time
 import uuid
 from pathlib import Path
+from background_tasks import still_running
 from check_error import CheckError
 from config import CONFIG, CONFIG_FILE
 from notes_files import NOTES_DIR, DomainFiles, domain_files, domains_in, open_and_later, section_text, why_not_a_domain
@@ -117,7 +118,7 @@ def as_agent(terminal: dict) -> dict:
         address=terminal["address"],
         name=terminal.get("name"),
         status=status.get("state"),
-        status_text=status.get("msg") or "",
+        still_running=still_running(terminal),
         turn=terminal.get("turn"),
         cwd=foreground.get("cwd") or terminal.get("cwd") or "",
         parent=terminal.get("parent"),
@@ -444,11 +445,6 @@ def claude_transcript(session_id: str) -> str | None:
 
 def transcript_of(session_id: str) -> str | None:
     return claude_transcript(session_id)
-
-
-def program_of(session_id: str) -> str:
-    """Which agent the session belongs to."""
-    return CLAUDE
 
 
 def lines_from_the_end(path: str):
