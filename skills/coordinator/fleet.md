@@ -151,8 +151,10 @@ the tab and do not send again.
   `report` line that ends with what still runs, such as
   `· 1 shell still running: npm run dev`, means its turn ended with a
   background task still running, so `hc ls` shows it working and it never
-  settles. Ask it to stop that task with `delegate_cap.py --send`, unless
-  the user needs it running. For a
+  settles. It does not count toward the cap of three working delegates.
+  `delegate_end.py --now <name>` ends it, which stops the task with the
+  session; ask it to stop the task with `delegate_cap.py --send` instead
+  when the user needs the delegate kept. For a
   blocked one, read its terminal: `hc read --lines 120 <name>`. The text
   shows whether it is a permission dialog or a question.
 
