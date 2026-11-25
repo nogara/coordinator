@@ -30,7 +30,8 @@ it, when the inbox is installed. One restarted in its own terminal keeps
 the panel it had.
 
 `restart` and `stop` refuse a coordinator that is working, one that has not
-replied "ready for restart", one whose backlog has uncommitted changes, and
+replied "ready for restart", one whose backlog or second file has uncommitted
+changes, and
 one whose prompt box holds a draft. They type "/exit" as key presses and
 stop if the session is still there 40 seconds later, printing its screen: a
 dialog there, such as "Background work is running", is the user's to answer.
@@ -56,6 +57,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fleet  # noqa: E402
+import inbox_state  # noqa: E402
 from fleet import CheckError, run  # noqa: E402
 
 READY = "ready for restart"
@@ -107,10 +109,11 @@ def check_can_exit(herd: fleet.Fleet, domain: str, agent: dict, replacing: bool)
         raise Refused(f"the session in terminal {address} is stopped on a dialog or a question, which is the user's to answer")
     if not replacing and not replied_ready(address):
         raise Refused(f"the {domain} coordinator has not replied \"{READY}\"; run `ask {domain}` and wait for it")
-    backlog = herd.backlog(domain)
-    backlog_is_tracked = fleet.git(str(backlog.parent), "rev-parse", "--git-dir") is not None
-    if backlog_is_tracked and fleet.git(str(backlog.parent), "status", "--porcelain", "--", str(backlog)):
-        raise Refused(f"{backlog} has uncommitted changes, so the handoff is not saved")
+    files = herd.files(domain)
+    is_tracked = fleet.git(str(files.notes.parent), "rev-parse", "--git-dir") is not None
+    for path in (files.notes, files.later):
+        if is_tracked and path.exists() and fleet.git(str(path.parent), "status", "--porcelain", "--", str(path)):
+            raise Refused(f"{path} has uncommitted changes, so the handoff is not saved")
 
 
 def background_copies_since(started_ms: float) -> list[str]:
@@ -186,7 +189,7 @@ def coordinator_name(domain: str) -> str:
 
 
 def start_in(address: str, domain: str, cwd: str, label: str) -> None:
-    """Start a new coordinator session in a terminal whose agent has exited."""
+    """Start a new coordinator session in `cwd`, in a terminal at a shell prompt or one whose agent has exited."""
     terminal = json.loads(run(["hc", "get", address, "--json"]))
     program = [fleet.CLAUDE, "--name", label, f"/coordinator {domain}"]
     if terminal.get("state") == "live":
@@ -194,7 +197,7 @@ def start_in(address: str, domain: str, cwd: str, label: str) -> None:
         if not at_a_shell:
             raise Refused(f"terminal {address} is not at a shell prompt, so a command typed there would go to its program")
         run(["hc", "label", address, "fleet.role=coordinator", f"fleet.domain={domain}", *(f"{k}={v}" for k, v in PINNED.items())])
-        send_bare_text(address, shlex.join(program))
+        send_bare_text(address, f"cd {shlex.quote(cwd)} && {shlex.join(program)}")
         report_started(address, domain)
         return
     labels = terminal.get("labels") or {}
@@ -218,7 +221,7 @@ def open_inbox_panel(address: str) -> None:
     holds the panel's pane id.
     """
     try:
-        if fleet.inbox_store() is None:
+        if inbox_state.inbox_store() is None:
             return
         terminal = fleet.terminal_or_none(address) or {}
         if (terminal.get("labels") or {}).get("inbox.panel"):

@@ -28,12 +28,15 @@ together. Other events wait until 10 minutes after the last exit.
 
 Urgent events:
 
-  ask <agent> <count> · <text>   its inbox holds more items for the user
+  ask <agent> <count> · <text>   its inbox holds more questions and tasks for the user
   gone <agent>                   no live terminal runs it any more
   unknown <agent>                its terminal has reported no status for 5 minutes
                                  with the Mac awake
   settled <agent> blocked        stopped on a dialog or a question
   settled <agent> error          stopped on an error: read its terminal
+                                 A settled line ends with · <n> findings in
+                                 its inbox when its saved inbox holds open
+                                 findings.
   pr <repo>#<n> merged|closed    the PR left the open state
   pr <repo>#<n> checks failure   checks finished and failed
   pr <repo>#<n> review changes_requested
@@ -43,24 +46,37 @@ Other events:
 
   settled <agent> idle|done      finished a turn. A compaction while idle is
                                  not a turn and prints nothing.
-  report <agent> <path>          its REPORT.md changed and it has settled
+  report <agent> <path> · <n> questions, <n> issues, <n> findings
+                                 its REPORT.md changed and its turn ended.
+                                 The counts are the list entries under the
+                                 report's "Questions for the user", "Issues
+                                 filed" and "Findings" headings it has. Then
+                                 · <n> findings in its inbox, as for settled,
+                                 and · <what still runs> when a task it
+                                 started still runs.
   pr <repo>#<n> checks success   checks finished and passed
   pr <repo>#<n> review <state>   review decision changed
   pr <repo>#<n> comments <n>     new reviews or comments from other accounts
   due <date> · <text>            with --domain: a list entry in the backlog's
-                                 Open section carries due: <date>, and that
-                                 date has come. An entry starts with -, *, +
+                                 Open or Later section carries due: <date>,
+                                 and that date has come. An entry starts with -, *, +
                                  or a number and . or ). One checked off with
                                  [x], or under one, is skipped, and a nested
                                  one is shown after its parent's first words.
                                  It prints once for the date and the entry's
                                  own first 60 characters.
+  issue <number> · <title> · <url>
+                                 with --domain: an open issue was created in
+                                 a repo the domain owns, and neither the
+                                 backlog nor an open item in the coordinator's
+                                 saved inbox names it. watch_issues.py says
+                                 how. Each issue prints once.
 
 Lines that end the watch without an event:
 
   blind hc|backlog|<repo> · <reason>
                                  that source failed for 15 minutes with the Mac
-                                 awake: arm again
+                                 awake, or 60 for a GitHub network error: arm again
   owner gone                     the owner's terminal ran no agent in two polls
   parent gone                    the shell that started it exited: arm again
   stopped                        you or a newer watcher stopped this one
@@ -82,19 +98,20 @@ They never end the watch on their own:
                                  an event above is for the PR of a delegate
                                  you ended with delegate_end.py. Run the
                                  command to give it the work.
-  rule · <text>                  a standing rule and its command: the limit
-                                 on open PRs once reached, delegates
-                                 quiet for over a day, a backlog over its
-                                 size limit, and an update to these skills,
-                                 checked at most daily. Follow each.
+  rule · <text>                  a standing rule and its command: delegates
+                                 quiet for over a day, notes over a size
+                                 limit or with a stray copy, Later items that
+                                 --resume hides (at most weekly), and an update
+                                 to these skills, checked at most daily. Follow
+                                 each.
 
 A delegate ended with delegate_end.py prints no `gone` and no `no agent`.
 
 `alive` is printed every 10 minutes while nothing fires, so Claude Code
 sees output and sends no quiet-task check-in. It needs nothing.
 
-The state file keeps the last snapshot, held events and the last exit time,
-so a change made while the watch was not running fires once it is armed
+The state file keeps the last snapshot, held events, the last exit time and
+when the Later review line last printed, so a change made while the watch was not running fires once it is armed
 again. The first run with a new state file records a snapshot and waits,
 apart from `due` lines, which print once whenever their date has come.
 A delegate that comes back after `gone` starts a new snapshot. It also
@@ -108,6 +125,9 @@ A watcher holds a lock on <state>.lock while it runs. Starting one stops
 the watcher holding that lock. Under Claude Code, a watcher started with a
 trailing & cannot wake the session when it exits, so it refuses to start
 and messages the owner instead.
+
+While it runs, it labels its terminal fleet.waiting.<task ID>, as
+waiting_label.py says.
 """
 import argparse
 import json
@@ -124,222 +144,46 @@ GATHER_SECONDS = 15
 NON_URGENT_GAP_SECONDS = 600
 ALIVE_SECONDS = 600
 BLIND_SECONDS = 900
-SECONDS_ASLEEP_THAT_COUNT_AS_A_SLEEP = 30
-UNKNOWN_SECONDS = 300
 COMMAND_TIMEOUT_SECONDS = 60
 OWNER_MISSES_BEFORE_GONE = 2
 NAME_MISSES_BEFORE_UNKNOWN = 2
-SETTLED = {"idle", "done", "blocked", "error"}
-URGENT = re.compile(r"^(ask|gone|unknown|owner|pr \S+ (merged|closed|checks failure|review changes_requested|not found))|(blocked|error)$")
+URGENT = re.compile(r"^(ask|gone|unknown|owner|pr \S+ (merged|closed|checks failure|review changes_requested|not found))"
+                    r"|^settled \S+ (blocked|error)\b")
 STATE_SOURCE = "hc"
 RULE_SECONDS = 20
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-import backlog  # noqa: E402
 import fleet  # noqa: E402
+import notes_files  # noqa: E402
 from due_steps import due_lines  # noqa: E402
+from mac_clock import MacClock  # noqa: E402
 from update_check import update_line  # noqa: E402
+from waiting_label import declare_waiting  # noqa: E402
+from watch_cache import (AgentCache, StateSaver, failures_carried_over, github_blind_line,  # noqa: E402
+                         load_json as load, pr_poll_delay, prune_state, save_json_atomic as save)
+from watch_agents import agent_events, agent_snapshot, ended_delegates, was_ended  # noqa: E402
+from watch_issues import domain_issue_sources, issue_lines, open_issues_since  # noqa: E402
 from watch_domain import (adopt_earlier_pr, copy_to_same_pr, copy_to_same_terminal, domain_member_names,  # noqa: E402
                           domain_pull_requests, given_terminals, named, slug_spec, under_watch_names,
                           watched_agent_names, watched_pr_specs, written_before_domain)
 from watch_lock import take_state_lock  # noqa: E402
 from watch_prs import ended_lines, pr_events, pr_snapshot  # noqa: E402
+from watch_rules import rule_lines  # noqa: E402
 
 
-def ended_delegates():
-    """Records of delegates ended with delegate_end.py."""
-    try:
-        return fleet.ended_records()
-    except Exception:
-        return []
-
-
-def was_ended(name, was, ended):
-    """By session when the watcher saw the delegate alive, so a reused name is not mistaken for it."""
-    records = [record for record in ended if isinstance(record, dict)]
-    if was.get("session"):
-        return any(record.get("session") == was["session"] for record in records)
-    return any(record.get("name") == name for record in records)
-
-
-def transcript_marks(agent):
-    try:
-        return fleet.transcript_marks(fleet.session_of(agent))
-    except Exception:
-        return None, None
-
-
-class MacClock:
-    """The time, and how long this Mac has stayed awake since an earlier time.
-
-    time.monotonic() stops while the Mac sleeps and time.time() keeps
-    running, so wall time that passed with no monotonic time is a sleep.
-    time.monotonic() starts again from zero when the Mac restarts, so a
-    lower reading than the last is a restart. Both count as a wake.
-
-    last_reading is the reading an earlier watcher saved. It carries the
-    last wake that watcher saw, and shows a sleep between the two watchers.
-    """
-
-    def __init__(self, last_reading=None):
-        try:
-            self.wall, self.awake, *saved_wake = (float(value) for value in last_reading)
-        except (TypeError, ValueError):
-            self.wall, self.awake, saved_wake = time.time(), time.monotonic(), []
-        self.mac_woke_at = saved_wake[0] if saved_wake else 0
-        self.read()
-
-    def read(self):
-        wall, awake = time.time(), time.monotonic()
-        seconds_asleep = (wall - self.wall) - (awake - self.awake)
-        if awake < self.awake or seconds_asleep >= SECONDS_ASLEEP_THAT_COUNT_AS_A_SLEEP:
-            self.mac_woke_at = wall
-        self.wall, self.awake = wall, awake
-        return wall
-
-    def reading(self):
-        return [self.wall, self.awake, self.mac_woke_at]
-
-    def awake_seconds_since(self, wall_time):
-        """Seconds since wall_time, or since the Mac last woke when that is later."""
-        now = self.read()
-        return now - max(wall_time, self.mac_woke_at)
-
-
-def live_agents():
+def live_agents(cache=None):
     """Every live agent, or None when herdr-core could not be read."""
     try:
-        return fleet.load_agents()
+        return cache.load() if cache is not None else fleet.load_agents()
     except Exception:
         return None
-
-
-def report_mtime(cwd, name, cwd_is_shared):
-    """A repo delegate reports in its worktree's .scratch; a delegate with no repo reports beside its brief.
-
-    A .scratch/REPORT.md in a cwd that another watched delegate shares
-    cannot be told apart, so it is not read.
-    """
-    candidates = [os.path.join(cwd, ".scratch", "REPORT.md")] if cwd and not cwd_is_shared else []
-    candidates.append(os.path.join(fleet.BRIEFS_DIR, name, "REPORT.md"))
-    for path in candidates:
-        if os.path.exists(path):
-            return path, os.path.getmtime(path)
-    return None, None
-
-
-def agent_snapshot(names, agents, seen, clock, ended=()):
-    by_name = named(agents)
-    watched_cwds = [by_name[name].get("cwd") for name in names if name in by_name]
-    snap = {}
-    for name in names:
-        a = by_name.get(name)
-        was = seen.get(name, {})
-        if a is None:
-            snap[name] = {"present": False, "ended": was_ended(name, was, ended), "session": was.get("session")}
-            continue
-        status = a["status"]
-        turn_ended = status in SETTLED and (a["turn"] != was.get("turns") or was.get("status") not in SETTLED)
-        if turn_ended or "responded" not in was:
-            responded, compacted = transcript_marks(a)
-        else:
-            responded, compacted = was.get("responded"), was.get("compacted")
-        cwd = a["cwd"]
-        path, mtime = report_mtime(cwd, name, watched_cwds.count(cwd) > 1)
-        if status not in SETTLED:
-            mtime = was.get("report_mtime", mtime)
-        unknown_since = (was.get("unknown_since") or clock.read()) if status is None else None
-        without_status_too_long = unknown_since is not None and (
-            bool(was.get("stuck")) or clock.awake_seconds_since(unknown_since) >= UNKNOWN_SECONDS)
-        snap[name] = {
-            "present": True,
-            "status": status,
-            "turns": a["turn"],
-            "asks": a["inbox_asks"],
-            "inbox": f"{a['inbox_asks']} · {a['inbox_status']}",
-            "report": path,
-            "report_mtime": mtime,
-            "unknown_since": unknown_since,
-            "stuck": without_status_too_long,
-            "responded": responded,
-            "compacted": compacted,
-            "session": a["session"],
-        }
-    return snap
-
-
-def only_compacted(was, now):
-    """The transcript gained a compaction and no assistant entry since the last snapshot."""
-    return bool(
-        now.get("compacted") and now["compacted"] != was.get("compacted")
-        and was.get("responded") and now.get("responded") == was["responded"]
-    )
-
-
-def agent_events(old, new):
-    for name, now in new.items():
-        was = old.get(name)
-        if was is None:
-            continue
-        if was.get("present") and not now["present"]:
-            if not now.get("ended"):
-                yield f"gone {name}"
-            continue
-        if not now["present"] or not was.get("present"):
-            continue
-        became_settled = now["status"] in SETTLED and was.get("status") not in SETTLED
-        turn_ended = now["status"] in SETTLED and (now["turns"] != was.get("turns") or became_settled)
-        if turn_ended and (now["status"] in ("blocked", "error") or not only_compacted(was, now)):
-            yield f"settled {name} {now['status']}"
-        if now["stuck"] and not was.get("stuck"):
-            yield f"unknown {name}"
-        if now["asks"] > was.get("asks", 0):
-            yield f"ask {name} {now['inbox']}"
-        report_moved = bool(was.get("report")) and now["report"] != was.get("report")
-        if now["report_mtime"] and now["report_mtime"] != was.get("report_mtime") and not report_moved:
-            yield f"report {name} {now['report']}"
 
 
 class RulesTimeout(BaseException):
     pass
 
 
-def rule_lines(domain):
-    """Standing rules for the domain's coordinator, each with its command."""
-    herd = fleet.Fleet()
-    if domain not in herd.backlogs:
-        return []
-    lines = []
-    for slug in sorted(herd.repos_of(domain) & set(fleet.PR_LIMITS)):
-        limit = fleet.PR_LIMITS[slug]
-        try:
-            count = fleet.open_pull_request_count(slug)
-        except Exception:
-            lines.append(f"rule · could not count the open PRs in {slug}, limit {limit} · run {fleet.SCRIPTS}/delegate_cap.py "
-                         "before starting work that opens one")
-            continue
-        if count >= limit:
-            lines.append(f"rule · {slug} has {count} open PRs from your GitHub account, limit {limit} · start nothing that "
-                         "opens a PR; work on an open PR goes ahead, and so does what the user asks for")
-    text = herd.backlog(domain).read_text()
-    for part in backlog.parts_over_their_limit(text):
-        lines.append(f"rule · in your backlog, {part} · {backlog.what_to_do_when_over(text)}")
-    now = fleet.dt.datetime.now(fleet.dt.timezone.utc)
-    quiet = 0
-    for member in herd.members_of(domain) if domain not in fleet.DOMAINS_KEPT_RUNNING else []:
-        agent = member["agent"]
-        if agent["status"] in ("working", "blocked"):
-            continue
-        responded = fleet.last_response(fleet.session_of(agent), now)
-        if responded and now - responded >= fleet.IDLE_BEFORE_ENDING:
-            quiet += 1
-    if quiet:
-        lines.append(f"rule · {quiet} of your delegates quiet for over a day · list them with "
-                     f"{fleet.SCRIPTS}/delegate_end.py --list-idle and end each one")
-    return lines
-
-
-def print_rules(agents, owner):
+def print_rules(agents, owner, stop_waiting, later_reviewed):
     """New lines may fail; the events above them are already printed and saved.
 
     A newer watcher's SIGTERM in this window ends the process without
@@ -347,14 +191,14 @@ def print_rules(agents, owner):
     """
     def give_up(signum, frame):
         raise RulesTimeout()
-    signal.signal(signal.SIGTERM, lambda signum, frame: os._exit(0))
+    signal.signal(signal.SIGTERM, lambda signum, frame: (stop_waiting(), os._exit(0)))
     try:
         owning_agent = next((a for a in agents or [] if a["address"] == owner), None)
         if not owning_agent or owning_agent["role"] != "coordinator" or not owning_agent["domain"]:
             return
         signal.signal(signal.SIGALRM, give_up)
         signal.alarm(RULE_SECONDS)
-        for line in rule_lines(owning_agent["domain"]):
+        for line in rule_lines(owning_agent["domain"], later_reviewed):
             print(line, flush=True)
     except BaseException as error:
         if isinstance(error, (KeyboardInterrupt, SystemExit)):
@@ -375,21 +219,6 @@ def print_update_line():
             raise
     finally:
         signal.alarm(0)
-
-
-def load(path):
-    try:
-        with open(path) as f:
-            return json.load(f)
-    except (OSError, json.JSONDecodeError):
-        return None
-
-
-def save(path, state):
-    tmp = path + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(state, f)
-    os.replace(tmp, path)
 
 
 def merged(old, new):
@@ -460,7 +289,7 @@ def main():
         return 2
     if args.domain:
         try:
-            fleet.open_section(fleet.BACKLOG_DIR / f"{args.domain}-backlog.md")
+            notes_files.open_section(notes_files.domain_files(args.domain).notes)
         except Exception as error:
             print(f"no backlog {args.domain} · {error}", flush=True)
             return 2
@@ -476,6 +305,7 @@ def main():
         print(f"locked {lock}", flush=True)
         return 2
     signal.signal(signal.SIGTERM, print_stopped_and_exit)
+    stop_waiting = declare_waiting()
 
     saved = load(args.state) or {}
     agents_seen = saved.get("agents", {}) if saved.get("source") == STATE_SOURCE else {}
@@ -489,15 +319,21 @@ def main():
         for spec in domain_prs:
             adopt_earlier_pr(prs_seen, spec)
     due_fired = saved.get("due_fired") if isinstance(saved.get("due_fired"), list) else []
+    issues_seen = saved.get("issues") if isinstance(saved.get("issues"), dict) else {}
+    later_reviewed = saved.get("later_reviewed") if isinstance(saved.get("later_reviewed"), dict) else {}
     last_agents = None
     owner_session = os.environ.get("CLAUDE_CODE_SESSION_ID")
     started_at = time.time()
     agents_ok_at = started_at
     backlog_ok_at = started_at
-    github_ok_at = {}
+    github_failing_since = failures_carried_over(saved, started_at)
     clock = MacClock(saved.get("clock"))
     owner_misses = 0
     name_misses = {name: 0 for name in args.agent if not agents_seen.get(name, {}).get("present")}
+    agent_cache = AgentCache()
+    state_saver = StateSaver(args.state)
+    gh_failures = 0
+    last_open_numbers = {}
     next_pr_poll = 0
     next_alive_at = started_at + ALIVE_SECONDS
     first_event_at = None
@@ -509,14 +345,15 @@ def main():
     def watched_specs():
         return list(dict.fromkeys(args.pr + sorted(domain_prs)))
 
-    def save_state(pending):
-        save(args.state, {"source": STATE_SOURCE, "agents": agents_seen, "prs": prs_seen, "pending": pending,
+    def save_state(pending, force=False):
+        state_saver.save({"source": STATE_SOURCE, "agents": agents_seen, "prs": prs_seen, "pending": pending,
                           "last_wake_at": last_wake_at, "clock": clock.reading(),
                           "watched_agents": watched_names(), "watched_prs": watched_specs(),
-                          "due_fired": due_fired})
+                          "due_fired": due_fired, "issues": issues_seen, "later_reviewed": later_reviewed,
+                          "github_failing_since": github_failing_since}, force=force)
 
     def end(line):
-        save_state(events)
+        save_state(events, force=True)
         print(line, flush=True)
         return 0
 
@@ -525,7 +362,7 @@ def main():
         if parent_shell_gone():
             return end("parent gone")
 
-        agents = live_agents()
+        agents = live_agents(agent_cache)
         if agents is None:
             if clock.awake_seconds_since(agents_ok_at) >= BLIND_SECONDS:
                 return end(f"blind hc · hc ls failed for {BLIND_SECONDS // 60} minutes")
@@ -571,6 +408,7 @@ def main():
                 except Exception:
                     named_prs = None
                 if named_prs is not None:
+                    last_open_numbers = open_numbers
                     searched = {**{slug: None for slug in open_numbers}, **search_failed}
                     for spec in named_prs | domain_prs:
                         adopt_earlier_pr(prs_seen, spec)
@@ -582,19 +420,30 @@ def main():
                 adopt_earlier_pr(prs_seen, spec)
             now_prs, failed = pr_snapshot(specs)
             failed = {**{slug: why for slug, why in searched.items() if why}, **failed}
+            issue_repos = []
+            if args.domain and last_agents is not None:
+                try:
+                    issue_repos, backlog_text, inbox_text = domain_issue_sources(args.domain, last_agents)
+                except Exception:
+                    issue_repos = []
+                else:
+                    lines, issues_seen, issues_failed = issue_lines(issue_repos, issues_seen, time.time(),
+                                                                    open_issues_since, backlog_text, inbox_text)
+                    events += lines
+                    failed = {**issues_failed, **failed}
             events += pr_events(prs_seen, now_prs)
             prs_seen = merged(prs_seen, now_prs)
             copy_to_same_pr(prs_seen, now_prs)
-            next_pr_poll = time.time() + PR_POLL_SECONDS
+            prune_state(agents_seen, prs_seen, set(watched_names()), set(specs), last_agents, last_open_numbers)
+            gh_failures = gh_failures + 1 if failed else 0
+            next_pr_poll = time.time() + pr_poll_delay(gh_failures, PR_POLL_SECONDS)
             if args.domain:
                 lines, due_fired = due_lines(args.domain, time.strftime("%Y-%m-%d"), due_fired)
                 events += lines or []
-            for repo in dict.fromkeys([spec.rsplit("#", 1)[0] for spec in specs] + list(searched)):
-                if repo not in failed:
-                    github_ok_at[repo] = time.time()
-                elif clock.awake_seconds_since(github_ok_at.get(repo, started_at)) >= BLIND_SECONDS:
-                    return end(f"blind {os.path.basename(repo)} · GitHub queries failed for {BLIND_SECONDS // 60} minutes"
-                               f" · {failed[repo]}")
+            for repo in dict.fromkeys([spec.rsplit("#", 1)[0] for spec in specs] + list(searched) + sorted(issue_repos)):
+                blind = github_blind_line(repo, failed.get(repo), github_failing_since, clock, BLIND_SECONDS)
+                if blind:
+                    return end(blind)
 
         save_state(events)
 
@@ -608,14 +457,16 @@ def main():
             for line in events:
                 print(line, flush=True)
             last_wake_at = now
-            save_state([])
+            prune_state(agents_seen, prs_seen, set(watched_names()), set(watched_specs()), last_agents, last_open_numbers)
+            save_state([], force=True)
             try:
                 for line in ended_lines(events, prs_seen, ended_delegates()):
                     print(line, flush=True)
             except Exception:
                 pass
             if args.owner:
-                print_rules(agents, args.owner)
+                print_rules(agents, args.owner, stop_waiting, later_reviewed)
+                save_state([], force=True)
             return 0
         if now >= next_alive_at:
             print("alive", flush=True)

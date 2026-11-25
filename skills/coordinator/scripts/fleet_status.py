@@ -6,10 +6,18 @@ Print where one coordinator's work stands, grouped by who acts next.
 
 The rows come from two sources, so work stays listed after its delegate's
 session ends: the delegates `hc ls` lists, and the open pull
-requests the domain's backlog names anywhere, as #<number> or pull/<number>.
+requests the domain's backlog or its second file names anywhere, as
+#<number> or pull/<number>.
+
+With the inbox mod installed, it also lists the questions and tasks each
+inbox holds, and the open findings each delegate's inbox holds. A
+delegate's findings reach the user only when you record them in your own
+inbox.
 
 fleet.py says which sessions are a domain's delegates. A delegate ended with
-delegate_end.py stays listed, as ended.
+delegate_end.py stays listed, as ended. A delegate whose turn ended while a
+background task it started still runs shows as idle, with what still runs,
+though hc shows it as working.
 
 A delegate is joined to a pull request by its worktree's branch, or by its
 commit when the worktree has no branch checked out. Pull requests are those
@@ -46,65 +54,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fleet  # noqa: E402
+import inbox_state  # noqa: E402
 from fleet import CheckError, age, parse_time, repo_of  # noqa: E402
+from pr_waits import waits_on  # noqa: E402
 from resume import resume_text  # noqa: E402
 from status_prs import fetch_pull_requests  # noqa: E402
 
 DEFAULT_BRANCHES = ("main", "master")
-
-
-def waits_on(pr: dict, open_branches: dict[str, int]) -> tuple[str, str, str, dt.datetime | None]:
-    """Who an open pull request waits on, the state, and the event that started the wait.
-
-    open_branches maps each open pull request's branch to its number.
-    """
-    last_commit = ((pr.get("commits") or {}).get("nodes") or [{}])[0].get("commit", {})
-    checks = (last_commit.get("statusCheckRollup") or {}).get("state")
-    committed = last_commit.get("committedDate") or ""
-    opened = ("opened", parse_time(pr["createdAt"]))
-    last_commit_at = ("last commit", parse_time(committed)) if committed else opened
-
-    open_threads = [t for t in pr["reviewThreads"]["nodes"] if not t["isResolved"]]
-    thread_starts = [
-        c["createdAt"] for t in open_threads for c in ((t.get("comments") or {}).get("nodes") or [])
-    ]
-    reviews = pr["latestOpinionatedReviews"]["nodes"]
-    asked_for_changes = [r for r in reviews if r["state"] == "CHANGES_REQUESTED"]
-    person_approvals = [
-        r["submittedAt"] for r in reviews
-        if r["state"] == "APPROVED" and (r["author"] or {}).get("__typename") == "User"
-    ]
-    approvals = person_approvals or [r["submittedAt"] for r in reviews if r["state"] == "APPROVED"]
-    ready_events = ((pr.get("timelineItems") or {}).get("nodes") or [])
-    ready = ("marked ready", parse_time(ready_events[-1]["createdAt"])) if ready_events and ready_events[-1] else opened
-    approved = ("approved", parse_time(max(approvals))) if approvals else opened
-
-    if pr["isDraft"]:
-        return ("the fleet", "draft", *opened)
-    if checks in ("FAILURE", "ERROR"):
-        return ("the fleet", "failing checks", *last_commit_at)
-    if pr["mergeable"] == "CONFLICTING":
-        return ("the fleet", "merge conflict", *opened)
-    if open_threads:
-        started = ("thread opened", parse_time(min(thread_starts))) if thread_starts else opened
-        return ("the fleet", f"{len(open_threads)} open review thread{'s' if len(open_threads) > 1 else ''}", *started)
-    if asked_for_changes:
-        if all(committed > r["submittedAt"] for r in asked_for_changes):
-            return ("a reviewer", "second look after fixes", *last_commit_at)
-        return ("the fleet", "changes requested", "asked", parse_time(max(r["submittedAt"] for r in asked_for_changes)))
-    if pr["reviewDecision"] == "CHANGES_REQUESTED":
-        return ("the fleet", "changes requested", *opened)
-    if checks in ("PENDING", "EXPECTED"):
-        return ("CI", "checks running", *last_commit_at)
-    if pr.get("baseRefName") in open_branches:
-        return ("another pull request", f"stacked on #{open_branches[pr['baseRefName']]}", *opened)
-    if pr["reviewDecision"] == "REVIEW_REQUIRED":
-        if person_approvals:
-            return ("a reviewer", "one more required review", *approved)
-        return ("a reviewer", "first review", *ready)
-    if pr["reviewDecision"] == "APPROVED" and not person_approvals and pr["reviewRequests"]["totalCount"]:
-        return ("the user", "approved by a bot only, people still requested", *approved)
-    return ("the user", "ready to merge", *approved)
 
 
 def collect(args: argparse.Namespace) -> dict:
@@ -132,7 +88,7 @@ def collect(args: argparse.Namespace) -> dict:
         else:
             pull_requests[slug] = fetch_pull_requests(slug, now)
 
-    saved_inbox = fleet.saved_inbox(Path(args.inbox_store) if args.inbox_store else fleet.inbox_store())
+    saved_inbox = inbox_state.saved_inbox(Path(args.inbox_store) if args.inbox_store else inbox_state.inbox_store())
 
     def asks_of(agent: dict, holder: str) -> list[dict]:
         session = saved_inbox.get(fleet.session_of(agent))
@@ -150,7 +106,15 @@ def collect(args: argparse.Namespace) -> dict:
             asks.insert(0, dict(holder=holder, kind="stopped", ask=status_line, count=1, since=None))
         return asks
 
+    def findings_of(agent: dict, holder: str) -> list[dict]:
+        return [
+            dict(holder=holder, title=finding.get("title") or "",
+                 since=dt.datetime.fromtimestamp(finding["at"] / 1000, dt.timezone.utc) if finding.get("at") else None)
+            for finding in inbox_state.open_findings(saved_inbox.get(fleet.session_of(agent)))
+        ]
+
     asks = asks_of(coordinator, "coordinator") if coordinator else []
+    findings: list[dict] = []
     def pull_request_at(cwd: str) -> tuple[str | None, str | None, str | None, dict | None]:
         slug, branch, commit, _ = repo_of(cwd, checkout)
         candidates = [
@@ -177,18 +141,21 @@ def collect(args: argparse.Namespace) -> dict:
 
     for member in members:
         agent, task = member["agent"], member["task"]
+        still_running = agent.get("still_running") or ""
         add_delegate(
-            agent, task, agent["status"] or "unknown", fleet.session_of(agent),
+            agent, task, "idle" if still_running else agent["status"] or "unknown", fleet.session_of(agent),
             placed_by="its fleet.domain label" if member["by_label"] else "backlog names its session",
-            in_backlog=member["by_backlog"],
+            in_backlog=member["by_backlog"], still_running=still_running,
         )
         asks += asks_of(agent, f"[{task}]")
+        findings += findings_of(agent, f"[{task}]")
     for record in ended:
         stand_in = dict(name=record["name"], address=None, cwd=record["cwd"], session=record["session"], status=None,
                         inbox_asks=0, inbox_status="")
         add_delegate(stand_in, record["task"], "ended", record["session"], placed_by="ended record",
                      in_backlog=True, ended_at=parse_time(record["ended_at"]))
         asks += asks_of(stand_in, f"[{record['task']}], ended")
+        findings += findings_of(stand_in, f"[{record['task']}], ended")
 
     member_addresses = {member["agent"]["address"] for member in members}
     held_elsewhere: dict[tuple[str, int], str] = {}
@@ -201,7 +168,7 @@ def collect(args: argparse.Namespace) -> dict:
             held_elsewhere[(slug, pr["number"])] = label
 
     backlog_only, unnamed = [], []
-    every_backlog = {name: path.read_text() for name, path in backlogs.items()}
+    every_backlog = {name: herd.text(name) for name in backlogs}
     open_numbers = [pr["number"] for prs in pull_requests.values() for pr in prs if pr["state"] == "OPEN"]
     for slug, prs in pull_requests.items():
         for pr in prs:
@@ -224,11 +191,7 @@ def collect(args: argparse.Namespace) -> dict:
         slug: {pr["headRefName"]: pr["number"] for pr in prs if pr["state"] == "OPEN"}
         for slug, prs in pull_requests.items()
     }
-    limits = [
-        dict(repo=slug, limit=fleet.PR_LIMITS[slug], open=len(open_branches[slug]))
-        for slug in sorted(pull_requests) if slug in fleet.PR_LIMITS
-    ]
-    return dict(now=now, domain=domain, coordinator=coordinator, delegates=delegates, asks=asks, limits=limits,
+    return dict(now=now, domain=domain, coordinator=coordinator, delegates=delegates, asks=asks, findings=findings,
                 backlog_only=backlog_only, unnamed=unnamed, repos=sorted(pull_requests), open_branches=open_branches)
 
 
@@ -237,7 +200,8 @@ def delegate_note(delegate: dict, now: dt.datetime) -> str:
         return f"[{delegate['task']}] ended {age(delegate['ended_at'], now)} ago"
     if delegate["status"] == "working":
         return f"[{delegate['task']}] working"
-    return f"[{delegate['task']}] {delegate['status']}, quiet {age(delegate['last_response'], now)}"
+    still_running = f", {delegate['still_running']}" if delegate.get("still_running") else ""
+    return f"[{delegate['task']}] {delegate['status']}, quiet {age(delegate['last_response'], now)}{still_running}"
 
 
 def render(state: dict) -> str:
@@ -284,14 +248,12 @@ def render(state: dict) -> str:
         f"{state['domain']} status, {local:%m-%d %H:%M} {local.tzname()}",
         f"{counted(len(delegates), 'delegate', 'delegates')} ({count_text}). "
         f"{counted(len(rows), 'open pull request', 'open pull requests')}. "
-        f"{counted(sum(a['count'] for a in asks), 'question or task waits', 'questions and tasks wait')} on the user.",
+        f"{counted(sum(a['count'] for a in asks), 'question or task waits', 'questions and tasks wait')} on the user."
+        + (f" {counted(len(state['findings']), 'finding sits', 'findings sit')} in delegates' inboxes."
+           if state["findings"] else ""),
     ]
     if not state["coordinator"]:
         out.append(f"No terminal is labelled as the coordinator for {state['domain']}.")
-    for limit in state["limits"]:
-        over = ": start nothing that opens another" if limit["open"] >= limit["limit"] else ""
-        out.append(f"{limit['repo']} has {limit['open']} open pull requests from your GitHub account, "
-                   f"limit {limit['limit']}{over}.")
 
     headings = (("the user", "Waits on the user"), ("a reviewer", "Waits on a reviewer"),
                 ("the fleet", "Waits on the fleet"), ("CI", "Waits on CI"),
@@ -299,6 +261,11 @@ def render(state: dict) -> str:
     for key, heading in headings:
         if groups[key]:
             out += ["", f"{heading} ({len(groups[key])})"] + [f"  {line}" for line in groups[key]]
+
+    if state["findings"]:
+        out += ["", f"Findings in delegates' inboxes ({len(state['findings'])})"]
+        for finding in sorted(state["findings"], key=lambda f: f["since"] or start_of_time):
+            out.append(f"  {age(finding['since'], now) if finding['since'] else 'now':>4}  {finding['holder']}  {finding['title']}")
 
     if without_pr:
         out += ["", f"Delegates with no open pull request ({len(without_pr)})"]
@@ -339,9 +306,10 @@ def as_json(state: dict) -> str:
                     wait_event=waits[2] if waits else None, wait_since=waits[3] if waits else None)
 
     return json.dumps(dict(
-        at=state["now"], domain=state["domain"], repos=state["repos"], limits=state["limits"],
+        at=state["now"], domain=state["domain"], repos=state["repos"],
         delegates=[dict(d, pr=slim(d["pr"], d["repo"])) for d in state["delegates"]],
         asks=state["asks"],
+        findings=state["findings"],
         backlog_only=[dict(item, pr=slim(item["pr"], item["repo"])) for item in state["backlog_only"]],
         unnamed=[dict(repo=item["repo"], number=item["pr"]["number"]) for item in state["unnamed"]],
     ), indent=1, default=str)

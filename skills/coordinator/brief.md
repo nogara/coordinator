@@ -7,9 +7,7 @@ or at `<backlog_dir>/briefs/<agent>/BRIEF.md` when the domain has no repo.
 one line: "Read `<path>` and do what it says."
 
 Fill every heading. Quote the user where they decided something, so the
-delegate neither asks again nor widens it. In Claude Code, take your
-session name from a `ListAgents` call when you write the brief: a message
-to any other name fails or reaches another session.
+delegate neither asks again nor widens it.
 
 ```markdown
 # Brief: <task in a few words>
@@ -50,13 +48,15 @@ attempts at the same check.
 
 ## Report
 
+Before your final report, stop the background shells, monitors and subagents
+you started, unless the user needs one running, such as a server to review.
+
 Whenever you stop, write `REPORT.md` beside this brief, with:
 
 - status: done, waiting on the user's yes, or stopped on a question
 - what changed: files and commits
 - what you verified and how: the command, the log path, the exit status
 - what waits on the user, and any answer they gave you directly
-- each open question, with your recommendation
 - made outside the worktree: everything you created that removing this
   worktree would not remove, each with how to remove it. That covers
   running processes with PID or port, tmux sessions, browser tabs, virtual
@@ -64,17 +64,25 @@ Whenever you stop, write `REPORT.md` beside this brief, with:
   "nothing" when there is none. The coordinator removes these when your
   task lands.
 
-Put questions and tasks for the user here, not in an inbox of your own. The
-coordinator asks the user in one place and relays their answers. When it
-relays an answer to an item your inbox holds anyway, close that item with
-it.
+Then add these three headings, each with one list entry per item, and no
+entries when it has none:
 
-Message your coordinator only when you are blocked on something another
-session holds, or when a question blocks all your work. Send no progress
-messages. Use `hc send <coordinator's address> "<text>"`. <For a Claude
-Code coordinator, add: Or use `SendMessage` to `<its session name, as
-ListAgents shows it>`.>
+- `## Questions for the user`: each question or task for the user, with its
+  options and your recommendation.
+- `## Issues filed`: each issue you filed, by link, and whether this task
+  fixes it.
+- `## Findings`: each problem you noticed and did not fix, each
+  work-around, and each part you did not check.
 
-Then end your turn with the same in your reply, so the coordinator's watch
-fires.
+The coordinator's watcher counts the entries under each heading, so give
+each item its own entry. Put questions and tasks for the user here, not in
+an inbox of your own. The coordinator asks the user in one place and relays
+their answers.
+
+Send your coordinator no message for progress or for a question. Write
+`REPORT.md` and end your turn with the same in your reply, and the
+coordinator's fleet watcher wakes it. Use
+`hc send <coordinator's address> "<text>"` only when you are blocked on
+something another session holds, such as a shared check or a virtual
+machine.
 ```

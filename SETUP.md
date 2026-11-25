@@ -18,6 +18,7 @@ exact command or click, and wait until they say it is done.
 | Coordinator skills | `/coordinator` and `fleet-sweep`, from this repo | yes |
 | Inbox plugin | One pane for every question, task and finding across sessions | recommended |
 | Vignette | Screenshot tool that sends drawings to and from agent sessions; macOS 14 or later | optional |
+| Coordinator layout | Herdr layout with pinned coordinators first, inbox counts and colored agent tiles | optional |
 
 ## 1. Check the basics
 
@@ -79,10 +80,13 @@ If so, create `~/.config/coordinator/` and write `config.json` there with
 only the keys they chose. An unknown key makes every coordinator script
 stop, so add nothing else:
 
-- `pr_limits`: the most open pull requests they want from their account in
-  a repo, such as `{"their-org/their-repo": 20}`.
 - `delegate_claude_args`: `["--autocompact", "300000"]` makes delegates
   compact their context earlier, which keeps long tasks cheaper.
+- `delegate_env`: environment variables set for every delegate, none by
+  default. Each one replaces a value of the same name from the login
+  profile. `{"NODE_OPTIONS": "--max-old-space-size=2048"}` limits the heap
+  of each Node process a delegate starts; a test runner's workers each get
+  that limit.
 
 `config.example.json` in the clone lists every key.
 
@@ -168,13 +172,57 @@ Then ask them to open Vignette. Its first launch asks for a screenshot
 shortcut, folder access and Accessibility permission, and offers to add its
 Claude Code plugin. Those choices are theirs.
 
-## 6. Check it all
+## 6. The Coordinator layout (optional)
+
+Ask whether they want it. It is a Herdr layout from this repo. Its sidebar
+lists pinned coordinators first, in the order they drag them, with each
+coordinator's delegates under it. The tab bar hides while a coordinator's
+tab shows. Each agent gets a colored tile, and the inbox's counts follow its
+name. Their own layout stays, and they can switch back.
+
+If they do:
+
+1. Read `~/src/coordinator/herdr/RECIPE.md` and every file in
+   `~/src/coordinator/herdr/`. Tell them in a few lines what the mods run
+   and read. They run `git` in each space's folder, `hc machine ls` every
+   15 seconds, and `hc label` to store each agent's color. They watch each
+   local repo's git folder, and load icons from Herdr's own
+   `workspace-chrome` mod. The top row fetches one small file from this
+   repo on GitHub once a day, to say when a newer version of the layout
+   exists. Ask whether to keep that check. On a no, set
+   `CHECK_FOR_UPDATES` to `false` in the copied top-row mod's `main.js`,
+   `mods/coordinator-topbar/main.js` unless the install renamed it.
+2. Add it the way the section "Layouts and mods other people made" in
+   `~/.config/herdr-app/AGENTS.md` describes. Copy
+   `herdr/layouts/coordinator.json` and its settings picture
+   `herdr/layouts/coordinator.png` into `~/.config/herdr-app/layouts/`.
+   Copy each folder in `herdr/mods/` into `~/.config/herdr-app/mods/`.
+   Never overwrite. When a name is taken, rename the new one in every place
+   the recipe's "Watch out" section lists.
+3. `herdr/keys.json` binds Cmd-K to the agent jumper while this layout
+   shows. Before merging it into their `~/.config/herdr-app/keys.json`, tell
+   them three things and ask. An edited keys file counts as theirs, so
+   Herdr's new default shortcuts stop arriving. The binding overrides any
+   Cmd-K they bound in `global`. A Cmd-K in their `terminal` section still
+   wins.
+4. Run `herdr-app check` on each mod you copied.
+5. Switching changes their window, so ask first. Then run
+   `herdr-app do layout.switch --name coordinator`.
+6. If they declined the Inbox plugin in section 4, say that the sidebar's
+   counts stay empty without it, and offer it once more.
+
+The files are copies, so `git pull` does not update them. When the top row
+says a newer version exists, follow "Updating" in `herdr/RECIPE.md`. It
+keeps the files they edited.
+
+## 7. Check it all
 
 Run `hc --version`, `claude plugin list`, and
 `~/src/coordinator/install.sh`, which prints "already linked" for each skill
-when it worked. Report each result in one line.
+when it worked. If they added the sidebar, `herdr-app status` should show
+no mod errors. Report each result in one line.
 
-## 7. Hand over
+## 8. Hand over
 
 Tell them how to start, in these words or close to them:
 

@@ -1,28 +1,21 @@
 """
 What the coordinator scripts share: who the coordinators and their delegates
-are, which repos a domain works in, which delegates were ended, and the limit
-on open pull requests.
+are, which repos a domain works in, and which delegates were ended.
 
 The fleet runs in herdr-core terminals, read with `hc`. An agent is a live
-terminal whose foreground program is Claude Code or Codex, or reports a
-status, as coding agents do and shells do not. Each one carries its
-terminal address, such as t7, which `hc send`, `hc read` and `hc get` take.
+terminal whose foreground program is Claude Code, or reports a status, as
+coding agents do and shells do not. Each one carries its terminal address,
+such as t7, which `hc send`, `hc read` and `hc get` take.
 
 A coordinator is the agent whose terminal carries the labels
-fleet.role=coordinator and fleet.domain=<domain>. Its backlog is
-<backlog_dir>/<domain>-backlog.md.
+fleet.role=coordinator and fleet.domain=<domain>. notes_files.py says
+where its notes are.
 
 The user's settings come from config.py.
 
 A delegate belongs to a domain when its terminal carries
-fleet.domain=<domain>, or carries no fleet.domain label and the backlog's
-Open section names its session id. delegate_start.py sets the label.
-
-A delegate runs Claude Code or Codex. Claude Code keeps a file per process
-that names its session. Codex does not, so delegate_start.py finds a Codex
-delegate's session in ~/.codex/sessions and writes it on the terminal as
-fleet.session. The terminal also carries fleet.effort, which only a Codex
-delegate has.
+fleet.domain=<domain>, or carries no fleet.domain label and the notes'
+Open or Later section names its session id. delegate_start.py sets the label.
 
 An ended delegate is one its coordinator closed with delegate_end.py. Its
 record in <state_dir>/ended/ holds what resuming it needs.
@@ -40,42 +33,33 @@ import subprocess
 import time
 import uuid
 from pathlib import Path
-
+from background_tasks import still_running
+from check_error import CheckError
 from config import CONFIG, CONFIG_FILE
+from notes_files import NOTES_DIR, DomainFiles, domain_files, domains_in, open_and_later, section_text, why_not_a_domain
 
 HOME = Path.home()
-BACKLOG_DIR = Path(CONFIG["backlog_dir"]).expanduser()
+BACKLOG_DIR = NOTES_DIR
 BRIEFS_DIR = BACKLOG_DIR / "briefs"
 STATE_DIR = Path(CONFIG["state_dir"]).expanduser()
 ENDED_DIR = STATE_DIR / "ended"
 WATCH_DIR = STATE_DIR / "watch"
-INBOX_STORES = HOME / ".claude" / "plugins" / "store"
 SESSION_FILES = HOME / ".claude" / "sessions"
-CODEX_SESSION_FILES = HOME / ".codex" / "sessions"
 SCRIPTS = str(Path(__file__).resolve().parent)
-PR_LIMITS = dict(CONFIG["pr_limits"])
 DOMAINS_KEPT_RUNNING = set(CONFIG["keep_running"])
 IDLE_BEFORE_ENDING = dt.timedelta(hours=24)
-SECTION_HEADING = re.compile(r"^## (?!#)")
 SHORT_SESSION_ID = 8
 TRANSCRIPT_TAIL_BYTES = (2_000_000, 12_000_000)
 COMMAND_TIMEOUT_SECONDS = 60
 AGENT_PROGRAM = "claude-code"
 CLAUDE = "claude"
-CODEX = "codex"
-CODEX_EFFORTS = ("low", "medium", "high", "xhigh")
 HC_NOT_FOUND = 3
 DELEGATE_FLAGS = [str(arg) for arg in CONFIG["delegate_claude_args"]]
-DELEGATE_CODEX_OVERRIDES = [str(override) for override in CONFIG["delegate_codex_overrides"]]
 # The name the Herdr app gives this machine, when the app runs on another one.
 HERDR_MACHINE = CONFIG["herdr_machine"]
 TERMINAL_NAME = re.compile(r"[a-z0-9_-]{1,32}")
 SECONDS_TO_WAIT_FOR_TAB = 15
 SECONDS_TO_WAIT_FOR_AGENT = 60
-
-
-class CheckError(Exception):
-    pass
 
 
 def run(command: list[str], cwd: str | None = None) -> str:
@@ -136,14 +120,13 @@ def as_agent(terminal: dict) -> dict:
         address=terminal["address"],
         name=terminal.get("name"),
         status=status.get("state"),
-        status_text=status.get("msg") or "",
+        still_running=still_running(terminal),
         turn=terminal.get("turn"),
         cwd=foreground.get("cwd") or terminal.get("cwd") or "",
         parent=terminal.get("parent"),
         session=(session_of_process(foreground.get("pid")) or labels.get("fleet.session")
                  or labels.get("inbox.session") or session_in_arguments(foreground.get("argv") or [])),
-        effort=labels.get("fleet.effort"),
-        program=CODEX if status.get("app") == CODEX or labels.get("fleet.effort") else CLAUDE,
+        program=CLAUDE,
         role=labels.get("fleet.role"),
         domain=labels.get("fleet.domain"),
         task=labels.get("fleet.task"),
@@ -163,7 +146,7 @@ def runs_an_agent(listed_terminal: dict) -> bool:
 def agent_started_from_its_shell(terminal: dict) -> bool:
     """`hc ls` lists such a terminal by its shell, with no status; `hc get` shows the agent in the foreground."""
     argv = (terminal.get("foreground") or {}).get("argv") or []
-    return bool(argv) and os.path.basename(argv[0]) in (CLAUDE, CODEX)
+    return bool(argv) and os.path.basename(argv[0]) == CLAUDE
 
 
 def listed_terminals() -> list[dict]:
@@ -207,40 +190,6 @@ def find_agent(agents: list[dict], target: str) -> dict | None:
     return next((a for a in agents if target in (a.get("name"), a["address"])), None)
 
 
-def open_section(backlog: Path) -> str:
-    if not backlog.is_file():
-        raise CheckError(f"no backlog at {backlog}")
-    body: list[str] | None = None
-    in_fence = False
-    for line in backlog.read_text().splitlines():
-        if line.lstrip().startswith(("```", "~~~")):
-            in_fence = not in_fence
-        is_heading = not in_fence and SECTION_HEADING.match(line)
-        if body is None:
-            if is_heading and line.rstrip() == "## Open":
-                body = []
-        elif is_heading:
-            break
-        else:
-            body.append(line)
-    if body is None:
-        raise CheckError(f"{backlog} has no '## Open' section")
-    return "\n".join(body)
-
-
-def section_text(text: str, heading: str) -> str:
-    body: list[str] | None = None
-    for line in text.splitlines():
-        if body is None:
-            if line.rstrip() == heading:
-                body = []
-        elif SECTION_HEADING.match(line):
-            break
-        else:
-            body.append(line)
-    return "\n".join(body or [])
-
-
 def names_session(text: str, agent: dict) -> bool:
     session_id = agent.get("session") or ""
     return len(session_id) >= SHORT_SESSION_ID and session_id[:SHORT_SESSION_ID] in text
@@ -276,9 +225,9 @@ def repo_of(cwd: str, cache: dict[str, tuple]) -> tuple[str | None, str | None, 
     return cache[cwd]
 
 
-def backlog_repos(text: str, cache: dict[str, tuple]) -> set[str]:
-    """Repos the backlog links a pull request in, and the checkouts its Boundary names by their top folder."""
-    slugs = set(re.findall(r"github\.com/([\w.-]+/[\w.-]+)/pull/\d+", text))
+def boundary_repos(text: str, cache: dict[str, tuple]) -> set[str]:
+    """Repos of the checkouts the backlog's Boundary names by their top folder."""
+    slugs = set()
     for path in set(re.findall(r"(?<![\w.])(?:~|/)[\w./-]+", section_text(text, "## Boundary"))):
         folder = os.path.realpath(os.path.expanduser(path.rstrip("./")))
         is_checkout = Path(folder).is_dir() and git(folder, "rev-parse", "--show-toplevel") == folder
@@ -286,6 +235,11 @@ def backlog_repos(text: str, cache: dict[str, tuple]) -> set[str]:
         if slug:
             slugs.add(slug)
     return slugs
+
+
+def backlog_repos(text: str, cache: dict[str, tuple]) -> set[str]:
+    """Repos the backlog links a pull request in, and the checkouts its Boundary names by their top folder."""
+    return set(re.findall(r"github\.com/([\w.-]+/[\w.-]+)/pull/\d+", text)) | boundary_repos(text, cache)
 
 
 def names_pull_request(text: str, slug: str, number: int, needs_link: bool) -> bool:
@@ -296,11 +250,12 @@ def names_pull_request(text: str, slug: str, number: int, needs_link: bool) -> b
 
 
 class Fleet:
-    """The live agents and the backlogs, read once."""
+    """The live agents and each domain's notes files, found once."""
 
     def __init__(self, terminals_file: str | None = None, agents: list[dict] | None = None):
         self.agents = agents if agents is not None else load_agents(terminals_file)
-        self.backlogs = {p.name.removesuffix("-backlog.md"): p for p in sorted(BACKLOG_DIR.glob("*-backlog.md"))}
+        self.domain_files = {domain: domain_files(domain) for domain in domains_in()}
+        self.backlogs = {domain: files.notes for domain, files in self.domain_files.items()}
         self.checkouts: dict[str, tuple] = {}
 
     def coordinated_domain(self, agent: dict) -> str | None:
@@ -320,15 +275,23 @@ class Fleet:
 
     def backlog(self, domain: str) -> Path:
         if domain not in self.backlogs:
-            raise CheckError(f"no backlog for {domain} in {BACKLOG_DIR}")
+            raise why_not_a_domain(domain)
         return self.backlogs[domain]
+
+    def files(self, domain: str) -> DomainFiles:
+        self.backlog(domain)
+        return self.domain_files[domain]
+
+    def text(self, domain: str) -> str:
+        """The domain's notes file and second file as one text."""
+        return self.files(domain).text()
 
     def coordinator_of(self, domain: str) -> dict | None:
         return next((a for a in self.agents if self.coordinated_domain(a) == domain), None)
 
     def members_of(self, domain: str) -> list[dict]:
         """The domain's live delegates: agent, task, and what placed each one."""
-        open_items = open_section(self.backlog(domain))
+        open_items = open_and_later(self.files(domain))
         members = []
         for agent in self.agents:
             bracketed = label_parts(agent["tab_label"])
@@ -350,7 +313,7 @@ class Fleet:
         return {slug for slug in (repo_of(cwd, self.checkouts)[0] for cwd in cwds) if slug}
 
     def repos_of(self, domain: str) -> set[str]:
-        return self.repos_worked_in(domain) | backlog_repos(self.backlog(domain).read_text(), self.checkouts)
+        return self.repos_worked_in(domain) | backlog_repos(self.text(domain), self.checkouts)
 
 
 # herdr-core starts terminals with its own environment, not the user's. A login
@@ -507,53 +470,13 @@ def claude_code_version(session_id: str) -> str:
     return "?"
 
 
-def inbox_store() -> Path | None:
-    """The inbox mod's saved state, which Claude Code keeps as inbox_<source>-<hash>.json. None without the inbox."""
-    if CONFIG["inbox_store"]:
-        return Path(CONFIG["inbox_store"]).expanduser()
-    found = sorted(INBOX_STORES.glob("inbox_*.json"))
-    if len(found) > 1:
-        raise CheckError(f"more than one inbox store: {', '.join(map(str, found))}. "
-                         f"Name the one to read as inbox_store in {CONFIG_FILE}")
-    return found[0] if found else None
-
-
-def saved_inbox(store: Path | None) -> dict:
-    """Each session's saved inbox, by session id."""
-    if store is None or not store.is_file():
-        return {}
-    return {key[2:]: value for key, value in json.loads(store.read_text()).items() if key.startswith("s:")}
-
-
-def inbox_items(agent: dict, store: Path | None = None) -> list[str]:
-    """What the agent's inbox holds for the user: the saved items, else its terminal's count of asks."""
-    saved = saved_inbox(store or inbox_store()).get(session_of(agent))
-    if saved:
-        return [f"{item['kind']}: {item.get('ask') or item.get('title')}" for item in saved["ledger"]["items"]]
-    if agent["inbox_asks"]:
-        return [f"not saved by the inbox; its terminal shows {agent['inbox_asks']} asks: {agent['inbox_status']}"]
-    return []
-
-
 def claude_transcript(session_id: str) -> str | None:
     paths = glob.glob(str(HOME / f".claude/projects/*/{session_id}.jsonl")) if session_id else []
     return max(paths, key=os.path.getmtime) if paths else None
 
 
-def codex_session_file(session_id: str) -> str | None:
-    """The file Codex saves the session in. Codex compresses one it has stopped writing to, as .jsonl.zst."""
-    found = CODEX_SESSION_FILES / f"*/*/*/rollout-*-{session_id}.jsonl"
-    paths = glob.glob(str(found)) + glob.glob(f"{found}.zst") if session_id else []
-    return max(paths, key=os.path.getmtime) if paths else None
-
-
 def transcript_of(session_id: str) -> str | None:
-    return claude_transcript(session_id) or codex_session_file(session_id)
-
-
-def program_of(session_id: str) -> str:
-    """Which agent the session belongs to, from which one saved it. Claude Code when neither did."""
-    return CODEX if not claude_transcript(session_id) and codex_session_file(session_id) else CLAUDE
+    return claude_transcript(session_id)
 
 
 def lines_from_the_end(path: str):
@@ -568,25 +491,6 @@ def lines_from_the_end(path: str):
             return
 
 
-def codex_model_call_times(session_id: str):
-    """When the model answered in a Codex session, newest first. Codex writes a token_usage_record per model call."""
-    path = codex_session_file(session_id)
-    if path and path.endswith(".zst"):
-        # A compressed file keeps the time Codex last wrote to it.
-        yield dt.datetime.fromtimestamp(os.path.getmtime(path), dt.timezone.utc).isoformat()
-        return
-    for lines, _ in lines_from_the_end(path) if path else ():
-        for line in reversed(lines):
-            if '"type":"token_usage_record"' not in line:
-                continue
-            try:
-                stamp = json.loads(line).get("timestamp")
-            except json.JSONDecodeError:
-                continue
-            if stamp:
-                yield stamp
-
-
 def last_response(session_id: str, now: dt.datetime | None = None) -> dt.datetime | None:
     """When the model last responded in this session, read from the end of its transcript.
 
@@ -594,8 +498,7 @@ def last_response(session_id: str, now: dt.datetime | None = None) -> dt.datetim
     """
     path = claude_transcript(session_id)
     if not path:
-        times = (parse_time(stamp) for stamp in codex_model_call_times(session_id))
-        return next((when for when in times if now is None or when <= now), None)
+        return None
     for lines, _ in lines_from_the_end(path):
         for line in reversed(lines):
             if '"type":"assistant"' not in line:
@@ -617,11 +520,10 @@ def transcript_marks(session_id: str) -> tuple[str | None, str | None]:
     """The times of the session's last assistant entry and of a compaction after it, if there is one.
 
     An idle compaction writes a compact_boundary entry and no assistant entry.
-    For a Codex session the first is its last model call and the second is None.
     """
     path = claude_transcript(session_id)
     if not path:
-        return next(codex_model_call_times(session_id), None), None
+        return None, None
     for lines, holds_whole_file in lines_from_the_end(path):
         compacted = None
         for line in reversed(lines):
@@ -676,10 +578,3 @@ def open_pull_request_numbers(slug: str) -> list[int]:
         if not page["pageInfo"]["hasNextPage"]:
             return numbers
         cursor = page["pageInfo"]["endCursor"]
-
-
-def open_pull_request_count(slug: str) -> int:
-    """Open pull requests in the repo from the signed-in GitHub account."""
-    query = "query($q: String!) { search(query: $q, type: ISSUE, first: 1) { issueCount } }"
-    out = run(["gh", "api", "graphql", "-f", f"query={query}", "-f", f"q=repo:{slug} is:pr is:open author:@me"])
-    return json.loads(out)["data"]["search"]["issueCount"]

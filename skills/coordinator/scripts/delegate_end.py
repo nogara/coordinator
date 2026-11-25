@@ -7,19 +7,23 @@ End a delegate that has gone quiet, and resume it when something arrives.
   delegate_end.py --resume <agent>  bring an ended delegate back
 
 Run it from the coordinator's terminal. Ending stops the delegate's Claude
-Code or Codex process and removes its herdr-core terminal, which closes its tab. Its
-worktree, branch, backlog line and transcript stay, and so do the questions
-in its inbox. fleet_status.py keeps listing it, as ended. The record in
+Code process and removes its herdr-core terminal, which closes its tab. Its
+worktree, branch, backlog line and transcript stay, and so do the questions,
+tasks and findings in its inbox. fleet_status.py keeps listing it, as ended. The record in
 <state_dir>/ended/, named by its session id, holds what resuming
 needs, with the text its terminal showed.
+
+A delegate whose turn ended while a background task it started still runs counts as
+idle. Ending it stops that task with the session.
 
 Ending refuses a delegate that is working, one stopped on a dialog, and one
 that is not yours. It also refuses:
 
   quiet under a day, or no model response found in its transcript
                            pass --now to end it anyway
-  questions in its inbox   relay each to the user in your own inbox first, then
-                           pass --relayed
+  items in its inbox       questions, tasks and open findings. Relay each to the
+                           user in your own inbox, or close the ones already
+                           settled, then pass --relayed
 
 Resuming starts the same session in a new terminal and tab with the same
 name and tab label, in the delegate's folder, with the delegate flags. It
@@ -36,12 +40,13 @@ import datetime as dt
 import json
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import codex  # noqa: E402
+import config  # noqa: E402
 import fleet  # noqa: E402
+import inbox_state  # noqa: E402
+from background_tasks import is_working  # noqa: E402
 from fleet import CheckError, age, run  # noqa: E402
 
 THIS_SCRIPT = f"{fleet.SCRIPTS}/delegate_end.py"
@@ -62,18 +67,18 @@ def list_idle(herd: fleet.Fleet, domain: str, now: dt.datetime) -> int:
     rows = []
     for member in herd.members_of(domain):
         agent = member["agent"]
-        if agent["status"] in ("working", "blocked"):
+        if agent["status"] == "blocked" or is_working(agent):
             continue
         since = quiet_since(agent, now)
         if since is None or now - since < fleet.IDLE_BEFORE_ENDING:
             continue
-        rows.append((since, agent.get("name") or agent["address"], member["task"], len(fleet.inbox_items(agent))))
+        rows.append((since, agent.get("name") or agent["address"], member["task"], len(inbox_state.inbox_items(agent))))
     if not rows:
         print("No delegate of yours has been quiet for a day.")
         return 0
     print(f"Quiet for a day or more: {len(rows)} of your delegates. End each with:")
     for since, name, task, items in sorted(rows):
-        relay = f"   relay its {items} inbox item{'s' if items > 1 else ''} first, then add --relayed" if items else ""
+        relay = f"   its inbox holds {items} item{'s' if items > 1 else ''}: relay them first, then add --relayed" if items else ""
         print(f"  {THIS_SCRIPT} {name}   # [{task}] quiet {age(since, now)}{relay}")
     print("Each keeps its worktree, branch and backlog line. Resume one with --resume <agent> "
           "when a review, an answer or a check result arrives for it.")
@@ -90,7 +95,7 @@ def end(herd: fleet.Fleet, domain: str, target: str, now: dt.datetime, relayed: 
         raise Refused(f"{target} is not a live delegate of {domain}; only its own coordinator ends a delegate")
     agent, task = member["agent"], member["task"]
     name = agent.get("name") or fleet.session_of(agent)[:fleet.SHORT_SESSION_ID]
-    if agent["status"] == "working":
+    if is_working(agent):
         raise Refused(f"{name} is working")
     if agent["status"] == "blocked":
         raise Refused(f"{name} is stopped on a dialog or a question, which is the user's to answer")
@@ -100,21 +105,25 @@ def end(herd: fleet.Fleet, domain: str, target: str, now: dt.datetime, relayed: 
                       "pass --now to end it anyway")
     if since is not None and now - since < fleet.IDLE_BEFORE_ENDING and not end_now:
         raise Refused(f"{name} responded {age(since, now)} ago, under a day; pass --now to end it anyway")
-    items = fleet.inbox_items(agent)
+    items = inbox_state.inbox_items(agent)
     if items and not relayed:
         listed = "\n".join(f"  {item}" for item in items)
         raise Refused(f"{name}'s inbox holds {len(items)} item{'s' if len(items) > 1 else ''}:\n{listed}\n"
-                      "Relay each to the user in your own inbox, or close the ones already settled, then pass --relayed")
+                      "Relay each question, task and finding to the user in your own inbox, or close the ones "
+                      "already settled, then pass --relayed")
 
     slug, branch, _, _ = fleet.repo_of(agent["cwd"], herd.checkouts)
     terminal_text = subprocess.run(
         ["hc", "read", "--lines", "80", agent["address"]],
         capture_output=True, text=True, timeout=fleet.COMMAND_TIMEOUT_SECONDS,
     ).stdout
+    terminal_info = fleet.terminal_or_none(agent["address"]) or {}
+    terminal_labels = terminal_info.get("labels") or {}
     tab_label = agent["tab_label"] or f"{domain} [{task}]"
     record = dict(
         name=name, task=task, domain=domain, tab_label=tab_label, session=fleet.session_of(agent),
-        program=agent["program"], effort=agent.get("effort"),
+        program=agent["program"], model=terminal_labels.get("fleet.model"),
+        effort=terminal_labels.get("fleet.effort"),
         cwd=agent["cwd"], repo=slug, branch=branch, ended_at=now.isoformat(),
         quiet_since=since.isoformat() if since else None, terminal_text=terminal_text,
     )
@@ -131,7 +140,8 @@ def end(herd: fleet.Fleet, domain: str, target: str, now: dt.datetime, relayed: 
             path.unlink()
             raise CheckError(f"{name} still runs, so it was not ended: {error}")
         print(f"{name}'s session ended, but its terminal record stayed: {error}")
-    print(f"ended {name}. Its worktree, branch and backlog line stay. Resume it with:\n"
+    stopped = f" Its leftover tasks stopped with it ({agent['still_running']})." if agent.get("still_running") else ""
+    print(f"ended {name}.{stopped} Its worktree, branch and backlog line stay. Resume it with:\n"
           f"  {THIS_SCRIPT} --resume {name}")
     return 0
 
@@ -164,24 +174,26 @@ def resume(herd: fleet.Fleet, domain: str, name: str) -> int:
         raise Refused(f"another live agent is already named {name}")
     task = record.get("task") or name
     tab_label = record.get("tab_label") or f"{domain} [{task}]"
-    runs_codex = record.get("program") == fleet.CODEX
-    if runs_codex and not record.get("effort"):
-        raise Refused(f"{name}'s record holds no effort for its Codex session. Start it with:\n  {fleet.SCRIPTS}/"
-                      f"delegate_start.py {name} --task \"{task}\" --cwd {record['cwd']} --resume {record['session']} --effort <effort>")
-    if runs_codex:
-        codex.require_codex_trust(record["cwd"])
-    program = (codex.codex_program(record["effort"], session=record["session"]) if runs_codex
-               else [fleet.CLAUDE, "--resume", record["session"], *fleet.DELEGATE_FLAGS, "--name", tab_label])
-    launched_at = time.time()
+    if record.get("program") == "codex":
+        raise Refused(f"{name}'s ended record is a Codex session, which delegate_end.py no longer supports. "
+                      f"Resume manually with `codex resume {record['session']}`")
+    saved_model = record.get("model")
+    saved_effort = record.get("effort")
+    model_flags = ["--model", saved_model] if saved_model and not record.get("quiet_since") else []
+    effort_flags = ["--effort", saved_effort] if saved_effort else []
+    program = [fleet.CLAUDE, "--resume", record["session"], *model_flags, *effort_flags,
+               *fleet.DELEGATE_FLAGS, "--name", tab_label]
+    labels = {"fleet.domain": domain, "fleet.task": task}
+    if saved_model:
+        labels["fleet.model"] = saved_model
+    if saved_effort:
+        labels["fleet.effort"] = saved_effort
     terminal = fleet.launch(
         name=name, cwd=record["cwd"], tab_label=tab_label, space=coordinator["space"],
-        labels={"fleet.domain": domain, "fleet.task": task,
-                **(codex.codex_labels(record["effort"], record["session"]) if runs_codex else {})},
-        program=program, parent=coordinator["address"],
+        labels=labels,
+        program=config.with_delegate_env(program), parent=coordinator["address"],
     )
-    if runs_codex:
-        codex.finish_codex_start(terminal, record["cwd"], launched_at, record["session"], None)
-    elif not terminal["running"]:
+    if not terminal["running"]:
         raise CheckError(f"no agent showed in terminal {terminal['address']} within {fleet.SECONDS_TO_WAIT_FOR_AGENT} "
                          f"seconds, so the ended record stays. It shows:\n{fleet.terminal_text(terminal['address'])}\n"
                          f"Remove a finished terminal with `hc rm {terminal['address']}` before trying again")
@@ -199,7 +211,8 @@ def main() -> int:
     parser.add_argument("agent", nargs="?", help="the delegate's name or terminal address")
     parser.add_argument("--list-idle", action="store_true", help="list your delegates quiet for a day or more")
     parser.add_argument("--resume", action="store_true", help="resume the ended delegate")
-    parser.add_argument("--relayed", action="store_true", help="its inbox items are relayed or settled")
+    parser.add_argument("--relayed", action="store_true",
+                        help="its inbox's questions, tasks and findings are relayed or settled")
     parser.add_argument("--now", action="store_true", help="end it though it responded within the last day")
     args = parser.parse_args()
     if not args.list_idle and not args.agent:

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-Refuse a coordinator's fourth working delegate, and new work that would open
-a pull request while its repo is at the limit on open ones.
+Refuse a coordinator's fourth working delegate.
 
 A coordinator runs this before starting a delegate, and sends a delegate
 new work or an answer through it with --send. It exits 0 when the step may
@@ -15,25 +14,13 @@ go ahead and 1 when it must wait in the backlog queue.
 Run it from the coordinator's terminal, or name the domain. A delegate is
 yours when its terminal carries fleet.domain=<your domain>, which
 delegate_start.py sets, or carries no such label and your backlog's Open
-section names its session id (the first 8 characters are enough). An
+or Later section names its session id (the first 8 characters are enough). An
 unlabelled agent named in two backlogs counts toward both. A delegate is
-working when `hc ls` shows its status as "working".
+working when `hc ls` shows its status as "working", unless its turn ended and only
+background tasks it started still run.
 
 Sending to a delegate that is already working leaves the count unchanged,
 so it is allowed even at the cap.
-
-The limits on open pull requests come from pr_limits in the config: the
-most open pull requests from the signed-in GitHub account in each repo. A
-limit applies to starting a delegate, in a domain that works in that repo,
-and never to --to. At or over the limit, a
-start is refused unless it opens no new pull request:
-
-  --resuming <agent>    the start resumes that ended delegate
-  --for-pr <number>     the delegate works on that open pull request
-  --user-asked "<their words>"
-                        the user asked for this work; note in the backlog
-                        that it started over the limit. Pass it only when
-                        the check refuses a start for the limit
 
 Each run is logged to <state_dir>/cap-checks.jsonl.
 
@@ -52,6 +39,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fleet  # noqa: E402
+from background_tasks import is_working  # noqa: E402
 from fleet import CheckError  # noqa: E402
 
 CAP = 3
@@ -72,16 +60,6 @@ def record(entry: dict) -> None:
             log.write(json.dumps(dict(at=dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"), **entry)) + "\n")
     except OSError:
         pass
-
-
-def pull_request_is_open(slug: str, number: int) -> bool:
-    try:
-        out = fleet.run(["gh", "pr", "view", str(number), "-R", slug, "--json", "state", "-q", ".state"])
-    except CheckError as error:
-        if "Could not resolve" in str(error):
-            return False
-        raise
-    return out.strip() == "OPEN"
 
 
 def sent(to: str, text: str, entry: dict) -> int:
@@ -115,9 +93,6 @@ def main() -> int:
     parser.add_argument("--to", metavar="AGENT", help="the delegate you are about to send work or an answer")
     parser.add_argument("--send", metavar="TEXT", help="send this text to the --to delegate when the check allows it")
     parser.add_argument("--resuming", metavar="AGENT", help="the start resumes this ended delegate")
-    parser.add_argument("--for-pr", metavar="NUMBER", type=int, help="the new delegate works on this open pull request")
-    parser.add_argument("--user-asked", metavar="WORDS", nargs="?", const="(their words were not given)",
-                        help="the user asked for this work, in these words")
     parser.add_argument("--terminals", metavar="FILE", help="read a saved JSON list of `hc get` output instead of running hc")
     args = parser.parse_args()
     if args.send is not None and not args.to:
@@ -137,7 +112,7 @@ def main() -> int:
         print(f"delegate_cap: {error}", file=sys.stderr)
         return 2
 
-    working = [member for member in members if member["agent"]["status"] == "working"]
+    working = [member for member in members if is_working(member["agent"])]
     for member in working:
         print(f"working  {described(member)}")
 
@@ -153,40 +128,8 @@ def main() -> int:
         print(f"REFUSED  {coordinator}: {count} of {CAP} working;{not_sent} queue {step} in the backlog until one settles")
         record(dict(entry, decision="refused: cap"))
         return 1
-    if args.to or args.resuming:
-        print(f"ALLOWED  {coordinator}: {count} of {CAP} working")
-        return allowed(dict(entry, resuming=args.resuming), target, args.send)
-
-    try:
-        limited = sorted(herd.repos_of(domain) & set(fleet.PR_LIMITS)) if domain in herd.backlogs else []
-        open_counts = {slug: fleet.open_pull_request_count(slug) for slug in limited}
-        over = [slug for slug in limited if open_counts[slug] >= fleet.PR_LIMITS[slug]]
-        for_open_pr = bool(over) and args.for_pr is not None and any(pull_request_is_open(slug, args.for_pr) for slug in over)
-    except (CheckError, OSError, KeyError, json.JSONDecodeError) as error:
-        print(f"delegate_cap: could not check open pull requests: {error}", file=sys.stderr)
-        return 2
-    entry.update(open_prs=open_counts, for_pr=args.for_pr, user_asked=args.user_asked)
-    for slug in over:
-        print(f"at limit  {slug}: {open_counts[slug]} open pull requests from your GitHub account, limit {fleet.PR_LIMITS[slug]}")
-    if over and args.for_pr is not None and not for_open_pr:
-        print(f"REFUSED  {coordinator}: #{args.for_pr} is not an open pull request in {' or '.join(over)}")
-        record(dict(entry, decision="refused: --for-pr is not open"))
-        return 1
-    if over and not for_open_pr and not args.user_asked:
-        print(f"REFUSED  {coordinator}: start nothing that opens a pull request until the count is under the limit. "
-              "Queue it in the backlog. To restart or resume a delegate you already have, pass --resuming <agent>. "
-              "For work on an open pull request, pass --for-pr <number>. "
-              "For work the user asked for, pass --user-asked \"<their words>\".")
-        record(dict(entry, decision="refused: pull request limit"))
-        return 1
-    reason = ""
-    if over and for_open_pr:
-        reason = f"; work on open pull request #{args.for_pr}"
-    elif over:
-        reason = "; the user asked for it. Note in the backlog that it started over the limit"
-    print(f"ALLOWED  {coordinator}: {count} of {CAP} working{reason}")
-    record(dict(entry, decision="allowed: over the limit" if over else "allowed"))
-    return 0
+    print(f"ALLOWED  {coordinator}: {count} of {CAP} working")
+    return allowed(dict(entry, resuming=args.resuming) if args.resuming else entry, target, args.send)
 
 
 if __name__ == "__main__":
