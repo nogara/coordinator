@@ -48,6 +48,9 @@ attempts at the same check.
 
 ## Report
 
+Before your final report, stop the background shells, monitors and subagents
+you started, unless the user needs one running, such as a server to review.
+
 Whenever you stop, write `REPORT.md` beside this brief, with:
 
 - status: done, waiting on the user's yes, or stopped on a question

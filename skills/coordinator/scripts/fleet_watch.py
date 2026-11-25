@@ -47,13 +47,13 @@ Other events:
   settled <agent> idle|done      finished a turn. A compaction while idle is
                                  not a turn and prints nothing.
   report <agent> <path> · <n> questions, <n> issues, <n> findings
-                                 its REPORT.md changed and it has settled.
+                                 its REPORT.md changed and its turn ended.
                                  The counts are the list entries under the
                                  report's "Questions for the user", "Issues
-                                 filed" and "Findings" headings, for each
-                                 heading it has; a report with none of them
-                                 gets no counts. Then · <n> findings in its
-                                 inbox, as for settled.
+                                 filed" and "Findings" headings it has. Then
+                                 · <n> findings in its inbox, as for settled,
+                                 and · <what still runs> when a task it
+                                 started still runs.
   pr <repo>#<n> checks success   checks finished and passed
   pr <repo>#<n> review <state>   review decision changed
   pr <repo>#<n> comments <n>     new reviews or comments from other accounts

@@ -102,6 +102,32 @@ class TestWatcherEvents(unittest.TestCase):
         self.assertEqual(snap["d1"]["findings"], 2)
         self.assertEqual(snap["d1"]["report_counts"], "2 findings")
 
+    def test_turn_over_with_tasks_running_reports_once_and_names_the_tasks(self):
+        idle_with_tasks = {"address": "t2", "name": "d1", "turn": 3, "cwd": "",
+                           "status": {"state": "working", "msg": "1 shell still running"},
+                           "records": {"b1": {"state": "working", "title": "npm run dev"}}}
+        mid_turn = dict(idle_with_tasks, status={"state": "working", "msg": "Running the tests"})
+        self.assertEqual(fleet.as_agent(mid_turn)["still_running"], "")
+        agent = fleet.as_agent(idle_with_tasks)
+        self.assertEqual(agent["still_running"], "1 shell still running: npm run dev")
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / ".scratch").mkdir()
+            report = Path(folder) / ".scratch" / "REPORT.md"
+            report.write_text("- status: done\n")
+            agent = dict(agent, cwd=folder, session="s-d1")
+            working = dict(agent, still_running="")
+            clock = fleet_watch.MacClock(None)
+            no_inbox = lambda: {}
+            before = watch_agents.agent_snapshot(["d1"], [working], {}, clock, saved_inbox=no_inbox)
+            os.utime(report, (before["d1"]["report_mtime"] + 60,) * 2)
+            mid = watch_agents.agent_snapshot(["d1"], [working], before, clock, saved_inbox=no_inbox)
+            after = watch_agents.agent_snapshot(["d1"], [agent], mid, clock, saved_inbox=no_inbox)
+            again = watch_agents.agent_snapshot(["d1"], [agent], after, clock, saved_inbox=no_inbox)
+        self.assertEqual(list(watch_agents.agent_events(before, mid)), [])
+        self.assertEqual(list(watch_agents.agent_events(mid, after)),
+                         [f"report d1 {report} · 1 shell still running: npm run dev"])
+        self.assertEqual(list(watch_agents.agent_events(after, again)), [])
+
     def test_urgent_reads_only_the_status_of_a_settled_line(self):
         self.assertTrue(fleet_watch.URGENT.search("settled d1 blocked · 2 findings in its inbox"))
         self.assertTrue(fleet_watch.URGENT.search("settled d1 error"))
