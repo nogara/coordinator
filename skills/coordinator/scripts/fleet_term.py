@@ -32,6 +32,20 @@ def parse_labels(pairs: list[str]) -> dict[str, str]:
     return labels
 
 
+def resolve(backend, argument: str) -> str:
+    """A terminal's name to its address, on runtimes whose own CLI takes addresses only; else the argument as given."""
+    if isinstance(backend, terminals.HcTerminals):
+        return argument
+    matches = [t["address"] for t in backend.ls() if argument in (t.get("name"), t.get("address"))]
+    if len(set(matches)) > 1:
+        raise AmbiguousName(f"{argument!r} names several terminals: {', '.join(matches)}")
+    return matches[0] if matches else argument
+
+
+class AmbiguousName(Exception):
+    pass
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="fleet_term.py")
     verbs = parser.add_subparsers(dest="verb", required=True)
@@ -40,7 +54,7 @@ def main(argv: list[str]) -> int:
     verbs.add_parser("get").add_argument("address")
     send = verbs.add_parser("send")
     send.add_argument("address")
-    send.add_argument("text")
+    send.add_argument("text", nargs=argparse.REMAINDER)
     read = verbs.add_parser("read")
     read.add_argument("address")
     read.add_argument("--lines", type=int)
@@ -53,6 +67,8 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     backend = terminals.current()
     try:
+        if args.verb not in ("ls", "self"):
+            args.address = resolve(backend, args.address)
         if args.verb == "ls":
             print(json.dumps({"terminals": backend.ls()}))
         elif args.verb == "get":
@@ -68,7 +84,7 @@ def main(argv: list[str]) -> int:
                 return 1
             print(json.dumps({"address": address}))
         elif args.verb == "send":
-            sent = backend.send(args.address, args.text, tagged=True)
+            sent = backend.send(args.address, " ".join(args.text), tagged=True)
             sys.stdout.write(sent.stdout or "")
             sys.stderr.write(sent.stderr or "")
             return sent.returncode
@@ -78,6 +94,9 @@ def main(argv: list[str]) -> int:
             backend.keys(args.address, args.keys)
         elif args.verb == "label":
             backend.set_labels(args.address, parse_labels(args.labels))
+    except AmbiguousName as error:
+        print(f"fleet_term: {error}", file=sys.stderr)
+        return 2
     except CheckError as error:
         print(f"fleet_term: {error}", file=sys.stderr)
         return 1

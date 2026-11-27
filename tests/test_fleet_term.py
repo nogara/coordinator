@@ -46,6 +46,11 @@ esac
         self.assertEqual(self.run_cli("label", "t7", "k=v", "old=").returncode, 0)
         self.assertEqual(self.calls(), ["send t7 hello there", "read --lines 5 t7", "label t7 k=v old="])
 
+    def test_keys_and_dash_text(self):
+        self.assertEqual(self.run_cli("keys", "t7", "escape").returncode, 0)
+        self.assertEqual(self.run_cli("send", "t7", "-n", "x").returncode, 0)
+        self.assertEqual(self.calls(), ["keys t7 escape", "send t7 -n x"])
+
     def test_self(self):
         done = self.run_cli("self", env={"HC_TERMINAL_ID": "t9"})
         self.assertEqual(json.loads(done.stdout), {"address": "t9"})
@@ -86,6 +91,27 @@ class FleetTermRex(unittest.TestCase):
         labels = json.loads(self.run_cli("get", "block:a").stdout)["labels"]
         self.assertEqual(labels["k"], "v")
         self.assertNotIn("x", labels)
+
+    def test_name_resolves_to_block_id(self):
+        self.assertEqual(json.loads(self.run_cli("get", "w").stdout)["address"], "block:a")
+        self.assertEqual(self.run_cli("label", "w", "k=v").returncode, 0)
+        self.assertEqual(json.loads(self.run_cli("get", "block:a").stdout)["labels"]["k"], "v")
+        self.assertEqual(self.run_cli("read", "w", "--lines", "1").stdout.strip(), "line3")
+
+    def test_ambiguous_name_exits_2(self):
+        blocks = [{**block("block:a", "w", "window:1"), "session_id": SESSION},
+                  {**block("block:b", "w", "window:1"), "session_id": SESSION}]
+        self.sb.write_rex_stub(blocks, {}, {}, set())
+        done = self.run_cli("get", "w")
+        self.assertEqual(done.returncode, 2)
+        self.assertIn("block:a, block:b", done.stderr)
+
+    def test_keys_and_dash_text(self):
+        self.assertEqual(self.run_cli("keys", "w", "escape").returncode, 0)
+        self.assertIn(["send-key", "-b", "block:a", "escape"], self.sb.rex_calls())
+        self.assertEqual(self.run_cli("send", "block:a", "-n").returncode, 0)
+        paste = json.loads((self.sb.root / "rex.stdin").read_text().splitlines()[0])
+        self.assertTrue(paste["event"]["payload"]["text"].endswith("\n-n"))
 
     def test_self(self):
         self.assertEqual(json.loads(self.run_cli("self").stdout), {"address": "block:me"})
