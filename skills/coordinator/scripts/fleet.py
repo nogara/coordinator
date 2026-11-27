@@ -250,9 +250,11 @@ class Fleet:
         here = next((a for a in self.agents if a["address"] == address), None)
         domain = self.coordinated_domain(here) if here else None
         if not domain:
+            backend = terminals.current()
+            unset = "(REX_BLOCK unset)" if isinstance(backend, terminals.RexTerminals) else "(HC_TERMINAL_ID unset)"
             raise CheckError(
-                f"terminal {address or '(HC_TERMINAL_ID unset)'} is not labelled as a coordinator. A coordinator "
-                'labels its own terminal once: hc label "$HC_TERMINAL_ID" fleet.role=coordinator fleet.domain=<domain>'
+                f"terminal {address or unset} is not labelled as a coordinator. A coordinator "
+                f"labels its own terminal once: {backend.own_label_command(address)}"
             )
         return domain
 

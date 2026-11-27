@@ -33,8 +33,11 @@ path, from the skill's base directory. Settings come from
    memory, not a doc: plans, specs and reports go wherever the user keeps
    docs. Create it when missing, in the shape under [Backlog](#backlog).
    Done when you have read every open item.
-3. Label your terminal as this domain's coordinator with
-   `python3 ~/.claude/skills/coordinator/scripts/fleet_term.py label <your address> fleet.role=coordinator fleet.domain=<domain>` (your address is in `python3 ~/.claude/skills/coordinator/scripts/fleet_term.py self`).
+3. Label your terminal as this domain's coordinator. `fleet_term.py self`
+   prints JSON, `{"address": "..."}`, and `label` takes that address field,
+   not the JSON, so run this one line with your domain in place of
+   `<domain>`:
+   `python3 ~/.claude/skills/coordinator/scripts/fleet_term.py label "$(python3 ~/.claude/skills/coordinator/scripts/fleet_term.py self | python3 -c 'import json, sys; print(json.load(sys.stdin)["address"])')" fleet.role=coordinator fleet.domain=<domain>`
    The fleet scripts and other coordinators find you by these labels.
 4. Sweep the fleet with `scripts/fleet_status.py` and `python3 ~/.claude/skills/coordinator/scripts/fleet_term.py ls`. The first
    lists your delegates, their pull requests and what each waits on the user

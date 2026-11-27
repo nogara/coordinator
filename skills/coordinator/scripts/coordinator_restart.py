@@ -15,9 +15,13 @@ Start, restart and stop coordinators in the Herdr app.
 Run it when the user asks. A restart gives the coordinator a new Claude Code
 process, so it loads the installed Claude Code and the current skill text.
 The new session starts in the same terminal, so its address, its tab and
-its delegates' link to it stay. On Rex a restart instead opens a new block in a
-new window of the same session, and the old block closes. When that terminal ended with its session,
-the new one starts in a new terminal in the same tab. Its conversation and
+its delegates' link to it stay. When that terminal ended with its session,
+the new one starts in a new terminal in the same tab. On Rex, a block left at
+a shell after the exit is reused the same way; one that closed, or still runs
+a program, is replaced by a new block in a new window of the same session, the
+old block closes, and the command prints the coordinator's old and new
+addresses: its delegates' fleet.parent and briefs still name the old one, so
+they must be told. Its conversation and
 its inbox do not carry over: the backlog does, which is why `ask` comes
 first. `ask` sends the coordinator the user's reason and the Restart steps from
 SKILL.md, and the coordinator replies "ready for restart" when its backlog
@@ -59,7 +63,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fleet  # noqa: E402
 import inbox_state  # noqa: E402
-import labels_store  # noqa: E402
 import terminals  # noqa: E402
 from fleet import CheckError, run  # noqa: E402
 
@@ -189,38 +192,47 @@ def coordinator_name(domain: str) -> str:
     return " ".join(word.capitalize() for word in domain.split("-") if word)
 
 
-def start_in(address: str, domain: str, cwd: str, label: str, reopen: bool = False) -> None:
+def start_in(address: str, domain: str, cwd: str, label: str, restarting: dict | None = None) -> None:
     """Start a new coordinator session in `cwd`, in a terminal at a shell prompt or one whose agent has exited.
 
-    reopen starts it in a new terminal even though the old one still lives, as a Rex restart does.
+    restarting is the agent a restart just exited there. On Rex, when its block
+    closed or does not sit at a shell, the new session gets a new window in the
+    same session instead of a refusal, and the address change is printed.
     """
-    terminal = terminals.current().get(address, strict=True)
+    on_rex = isinstance(terminals.current(), terminals.RexTerminals)
+    replaceable = on_rex and restarting is not None
+    if replaceable:
+        terminal = terminals.current().get(address) or dict(state="gone", labels={"herdr.space": restarting.get("space")})
+    else:
+        terminal = terminals.current().get(address, strict=True)
     program = [fleet.CLAUDE, "--name", label, f"/coordinator {domain}"]
-    if terminal.get("state") == "live" and not reopen:
-        shown = listed(address) or {}
+    if terminal.get("state") == "live":
+        shown = listed(address)
         # Rex lists a shell with no agent at all; hc names the shell.
-        at_a_shell = shown.get("agent") in SHELLS or (
-            isinstance(terminals.current(), terminals.RexTerminals) and not fleet.runs_an_agent(shown))
-        if not at_a_shell:
+        at_a_shell = (shown or {}).get("agent") in SHELLS or (
+            on_rex and (shown is not None or not replaceable) and not fleet.runs_an_agent(shown or {}))
+        if at_a_shell:
+            terminals.current().set_labels(address, {"fleet.role": "coordinator", "fleet.domain": domain, **PINNED})
+            send_bare_text(address, f"cd {shlex.quote(cwd)} && {shlex.join(program)}")
+            report_started(address, domain)
+            return
+        if not replaceable:
             raise Refused(f"terminal {address} is not at a shell prompt, so a command typed there would go to its program")
-        terminals.current().set_labels(address, {"fleet.role": "coordinator", "fleet.domain": domain, **PINNED})
-        send_bare_text(address, f"cd {shlex.quote(cwd)} && {shlex.join(program)}")
-        report_started(address, domain)
-        return
     labels = terminal.get("labels") or {}
     if not labels.get("herdr.space"):
         raise CheckError(f"terminal {address} ended and has no herdr.space label, so the new session has no space to open in")
     carried = {key: labels[key] for key in ("inbox.panel",) if key in labels}
-    on_rex = isinstance(terminals.current(), terminals.RexTerminals)
     started = fleet.launch(
         # On Rex the new session gets a window of its own in the old one's session, never a split of the old window.
         name=None, cwd=cwd, tab_label=label, space=labels["herdr.space"], tab=None if on_rex else labels.get("herdr.tab"),
         labels={"fleet.role": "coordinator", "fleet.domain": domain, **PINNED, **carried},
         program=program, parent=None,
     )
-    terminals.current().end(address)
+    terminals.current().discard(address)
     if on_rex:
-        labels_store.forget(address)
+        print(f"The {domain} coordinator's address changed from {address} to {started['address']}. Its delegates' "
+              f"fleet.parent and briefs still name {address}: tell each delegate its coordinator is now "
+              f"{started['address']}.")
     open_inbox_panel(started["address"])
     report_started(started["address"], domain)
 
@@ -347,8 +359,7 @@ def main() -> int:
             print(f"The {domain} coordinator exited. Terminal {agent['address']} holds a shell. Start a new one with:\n"
                   f"  {fleet.SCRIPTS}/coordinator_restart.py start {domain} --cwd {agent['cwd']} --in {agent['address']}")
             return 0
-        start_in(agent["address"], domain, agent["cwd"], label,
-                 reopen=isinstance(terminals.current(), terminals.RexTerminals))
+        start_in(agent["address"], domain, agent["cwd"], label, restarting=agent)
         return 0
     except Refused as refusal:
         print(f"REFUSED  {refusal}")

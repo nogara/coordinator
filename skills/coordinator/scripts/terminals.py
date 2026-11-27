@@ -81,6 +81,18 @@ class Terminals(Protocol):
     def inbox_panel(self, address: str, pane: str | None) -> str | None:
         """Open the inbox mod's pane beside the terminal; the new pane id, or None when unsupported."""
 
+    def discard(self, address: str) -> None:
+        """Drop a terminal a coordinator was started away from: its record, and on Rex the block itself."""
+
+    def own_label_command(self, address: str | None) -> str:
+        """The command a coordinator runs once to label its own terminal, for error messages."""
+
+    def end_command(self, address: str) -> str:
+        """The command, in backquotes, that ends a terminal by hand, for error messages."""
+
+    def remove_command(self, address: str) -> str:
+        """The command, in backquotes, that removes a finished terminal by hand, for error messages."""
+
 
 def _run(command: list[str]) -> str:
     try:
@@ -234,6 +246,19 @@ class HcTerminals:
                 raise CheckError(f"the app shows no pane for terminal {address}")
         panel = json.loads(_run(["herdr-app", "do", "pane.split", json.dumps(dict(direction="right", pane=pane, mod="inbox"))]))
         return panel["pane"]
+
+    def discard(self, address: str) -> None:
+        """Remove an ended terminal's record."""
+        _run(["hc", "rm", address])
+
+    def own_label_command(self, address: str | None) -> str:
+        return 'hc label "$HC_TERMINAL_ID" fleet.role=coordinator fleet.domain=<domain>'
+
+    def end_command(self, address: str) -> str:
+        return f"`hc kill {address}`, then `hc rm {address}`"
+
+    def remove_command(self, address: str) -> str:
+        return f"`hc rm {address}`"
 
 
 REX_NOT_FOUND = 3
@@ -504,6 +529,22 @@ class RexTerminals:
     def inbox_panel(self, address: str, pane: str | None) -> str | None:
         print(f"Rex has no inbox panel, so none was opened beside block {address}. Typing /inbox in the session opens it.")
         return None
+
+    def discard(self, address: str) -> None:
+        """Close the block, as end does, and forget its labels."""
+        self.end(address)
+        labels_store.forget(address)
+
+    def own_label_command(self, address: str | None) -> str:
+        target = address or '"$REX_BLOCK"'
+        return (f"python3 ~/.claude/skills/coordinator/scripts/fleet_term.py label {target} "
+                "fleet.role=coordinator fleet.domain=<domain>")
+
+    def end_command(self, address: str) -> str:
+        return f"`rex block close {address}`"
+
+    def remove_command(self, address: str) -> str:
+        return f"`rex block close {address}`"
 
 
 @functools.lru_cache(maxsize=None)

@@ -127,7 +127,7 @@ def end(herd: fleet.Fleet, domain: str, target: str, now: dt.datetime, relayed: 
     )
     if not record["session"]:
         raise CheckError(f"no session id found for {name}, so it could not be resumed. To end it anyway, run "
-                         f"`hc kill {agent['address']}`, then `hc rm {agent['address']}`")
+                         f"{terminals.current().end_command(agent['address'])}")
     fleet.ENDED_DIR.mkdir(parents=True, exist_ok=True)
     path = fleet.ended_record_path(record["session"])
     path.write_text(json.dumps(record, indent=1))
@@ -194,7 +194,8 @@ def resume(herd: fleet.Fleet, domain: str, name: str) -> int:
     if not terminal["running"]:
         raise CheckError(f"no agent showed in terminal {terminal['address']} within {fleet.SECONDS_TO_WAIT_FOR_AGENT} "
                          f"seconds, so the ended record stays. It shows:\n{fleet.terminal_text(terminal['address'])}\n"
-                         f"Remove a finished terminal with `hc rm {terminal['address']}` before trying again")
+                         f"Remove a finished terminal with {terminals.current().remove_command(terminal['address'])} "
+                         "before trying again")
     path.unlink()
     print(f"resumed {name} as terminal {terminal['address']}, tab \"{tab_label}\". Send it the work with:\n"
           f"  {fleet.SCRIPTS}/delegate_cap.py --to {name} --send \"<what arrived>\"")

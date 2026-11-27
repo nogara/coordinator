@@ -1,7 +1,9 @@
 """Tests for RexTerminals, the Rex backend of terminals.py, against a fake `rex` on PATH."""
 from __future__ import annotations
 
+import contextlib
 import functools
+import io
 import json
 import os
 import unittest
@@ -355,9 +357,32 @@ class TestEndAndMisc(RexTestCase):
 
 
 class TestCoordinatorRestart(RexTestCase):
-    def test_restart_on_rex_reopens_in_same_session_and_relabels(self):
+    OLD_LABELS = {"fleet.role": "coordinator", "fleet.domain": "demo", "herdr.pinned": "1"}
+
+    def restart(self, after_exit):
+        """Run `restart demo` against block:old; after_exit is what `listed` answers once /exit was sent."""
         self.sb.write_notes("demo", "# Demo\n\n## Open\n\n## Done\n")
-        labels_store.merge("block:old", {"fleet.role": "coordinator", "fleet.domain": "demo", "herdr.pinned": "1"})
+        labels_store.merge("block:old", self.OLD_LABELS)
+        folder = self.sb.backlog_dir
+        out = io.StringIO()
+        with mock.patch.object(fleet, "domain_files", functools.partial(fleet.domain_files, folder=folder)), \
+                mock.patch.object(fleet, "domains_in", functools.partial(fleet.domains_in, folder=folder)), \
+                mock.patch.object(fleet, "why_not_a_domain", functools.partial(fleet.why_not_a_domain, folder=folder)), \
+                mock.patch.object(coordinator_restart, "listed", mock.Mock(side_effect=after_exit)), \
+                mock.patch.object(coordinator_restart, "background_copies_since", return_value=[]), \
+                mock.patch.object(coordinator_restart, "report_started"), \
+                mock.patch.object(coordinator_restart.inbox_state, "inbox_store", return_value=None), \
+                mock.patch("sys.argv", ["coordinator_restart.py", "restart", "demo"]), \
+                contextlib.redirect_stdout(out):
+            self.assertEqual(coordinator_restart.main(), 0)
+        calls = self.sb.rex_calls()
+        sent = [c for c in calls if c[0] in ("send", "send-key")]
+        self.assertEqual(sent[0], ["send", "-b", "block:old", "--", "/exit"])
+        self.assertEqual(sent[1], ["send-key", "-b", "block:old", "enter"])
+        self.assertNotIn("--focus=true", sum(calls, []))
+        return calls, out.getvalue()
+
+    def stub_old(self, gone=()):
         screen = "\u23fa ready for restart\n\u276f /exit\n"
         self.stub([block("block:old", "Demo", "window:1", OTHER_SESSION),
                    block("block:new", "Demo", "window:new", OTHER_SESSION)],
@@ -365,33 +390,35 @@ class TestCoordinatorRestart(RexTestCase):
                             "block:new": {"records": [root_record("idle", "")]}},
                   processes={"block:old": claude_process(4242, "/work/demo"),
                              "block:new": claude_process(4243, "/work/demo")},
-                  screens={"block:old": screen})
-        old_label_file = self.sb.state_dir / "rex-labels" / "old.json"
-        self.assertTrue(old_label_file.exists())
-        gone_after_exit = mock.Mock(return_value=None)
-        folder = self.sb.backlog_dir
-        with mock.patch.object(fleet, "domain_files", functools.partial(fleet.domain_files, folder=folder)), \
-                mock.patch.object(fleet, "domains_in", functools.partial(fleet.domains_in, folder=folder)), \
-                mock.patch.object(fleet, "why_not_a_domain", functools.partial(fleet.why_not_a_domain, folder=folder)), \
-                mock.patch.object(coordinator_restart, "listed", gone_after_exit), \
-                mock.patch.object(coordinator_restart, "background_copies_since", return_value=[]), \
-                mock.patch.object(coordinator_restart, "report_started"), \
-                mock.patch.object(coordinator_restart.inbox_state, "inbox_store", return_value=None), \
-                mock.patch("sys.argv", ["coordinator_restart.py", "restart", "demo"]):
-            self.assertEqual(coordinator_restart.main(), 0)
-        calls = self.sb.rex_calls()
-        sent = [c for c in calls if c[0] in ("send", "send-key")]
-        self.assertEqual(sent[0], ["send", "-b", "block:old", "--", "/exit"])
-        self.assertEqual(sent[1], ["send-key", "-b", "block:old", "enter"])
+                  screens={"block:old": screen}, gone=gone)
+
+    def test_restart_on_rex_reuses_the_block_left_at_a_shell(self):
+        self.stub_old()
+        at_a_shell = dict(address="block:old", name="Demo", agent=None, status=None)
+        calls, out = self.restart(lambda address: at_a_shell)
+        self.assertFalse([c for c in calls if c[:2] == ["window", "new"] or c[0] == "run"])
+        self.assertFalse([c for c in calls if c[1:2] == ["close"]])
+        pasted = [c for c in calls if c[:1] == ["api"]]
+        self.assertTrue(pasted)
+        self.assertEqual(labels_store.labels_for("block:old"), self.OLD_LABELS)
+        self.assertNotIn("address changed", out)
+
+    def test_restart_on_rex_falls_back_to_a_new_window_when_the_block_is_gone(self):
+        self.stub_old()
+
+        def gone_after_exit(address):
+            self.stub_old(gone={"block:old"})
+            return None
+
+        calls, out = self.restart(gone_after_exit)
         new = next(c for c in calls if c[:2] == ["window", "new"])
-        self.assertLess(calls.index(sent[1]), calls.index(new))
         self.assertEqual(new[:new.index("--")],
                          ["window", "new", "Demo", "-s", OTHER_SESSION, "-c", "/work/demo", "--focus=false",
                           "--shell", "none", "--json"])
-        self.assertEqual(labels_store.labels_for("block:new"),
-                         {"fleet.role": "coordinator", "fleet.domain": "demo", "herdr.pinned": "1"})
-        self.assertFalse(old_label_file.exists())
-        self.assertNotIn("--focus=true", sum(calls, []))
+        self.assertEqual(labels_store.labels_for("block:new"), self.OLD_LABELS)
+        self.assertFalse((self.sb.state_dir / "rex-labels" / "old.json").exists())
+        self.assertIn("address changed from block:old to block:new", out)
+        self.assertIn("delegates", out)
 
     def start_in_args(self, block_id):
         folder = self.sb.backlog_dir
@@ -423,9 +450,80 @@ class TestCoordinatorRestart(RexTestCase):
     def test_start_in_a_rex_block_running_an_agent_is_refused_untouched(self):
         self.stub([block("block:a", "a", "window:1")], statuses={"block:a": {"records": [root_record("idle", "")]}},
                   processes={"block:a": claude_process()})
-        self.assertEqual(self.run_start_in("block:a"), 1)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(self.run_start_in("block:a"), 1)
+        self.assertIn("REFUSED  terminal block:a runs an agent; use `restart demo --terminal`", out.getvalue())
         calls = self.sb.rex_calls()
         self.assertFalse([c for c in calls if c[:2] == ["window", "new"] or c[1:2] == ["close"]])
+
+
+class TestHints(RexTestCase):
+    """The commands error messages name are the runtime's own."""
+
+    def test_rex_hints_name_fleet_term_and_rex_block_close(self):
+        self.assertEqual(self.rex.own_label_command("block:me"),
+                         "python3 ~/.claude/skills/coordinator/scripts/fleet_term.py label block:me "
+                         "fleet.role=coordinator fleet.domain=<domain>")
+        self.assertEqual(self.rex.end_command("block:a"), "`rex block close block:a`")
+        self.assertEqual(self.rex.remove_command("block:a"), "`rex block close block:a`")
+
+    def test_hc_hints_are_unchanged(self):
+        hc = terminals.HcTerminals()
+        self.assertEqual(hc.own_label_command("t7"),
+                         'hc label "$HC_TERMINAL_ID" fleet.role=coordinator fleet.domain=<domain>')
+        self.assertEqual(hc.end_command("t7"), "`hc kill t7`, then `hc rm t7`")
+        self.assertEqual(hc.remove_command("t7"), "`hc rm t7`")
+
+    def unlabelled_error(self) -> str:
+        folder = self.sb.backlog_dir
+        with mock.patch.object(fleet, "domains_in", functools.partial(fleet.domains_in, folder=folder)):
+            with self.assertRaises(CheckError) as raised:
+                fleet.Fleet(agents=[]).own_domain()
+        return str(raised.exception)
+
+    def test_own_domain_error_on_rex_names_fleet_term(self):
+        with mock.patch.dict(os.environ, {"REX_BLOCK": "block:me"}):
+            message = self.unlabelled_error()
+        self.assertEqual(message,
+                         "terminal block:me is not labelled as a coordinator. A coordinator labels its own terminal "
+                         "once: python3 ~/.claude/skills/coordinator/scripts/fleet_term.py label block:me "
+                         "fleet.role=coordinator fleet.domain=<domain>")
+        self.assertNotIn("hc ", message)
+
+    def test_own_domain_error_on_hc_is_unchanged(self):
+        terminals.current.cache_clear()
+        with mock.patch.dict(config.CONFIG, {"runtime": "hc"}), mock.patch.dict(os.environ):
+            os.environ.pop("HC_TERMINAL_ID", None)
+            message = self.unlabelled_error()
+        self.assertEqual(message,
+                         "terminal (HC_TERMINAL_ID unset) is not labelled as a coordinator. A coordinator labels its "
+                         'own terminal once: hc label "$HC_TERMINAL_ID" fleet.role=coordinator fleet.domain=<domain>')
+
+
+class TestHcStartInEndedTerminal(unittest.TestCase):
+    """On hc, a coordinator started over an ended terminal removes its record with `hc rm` alone."""
+
+    def test_ended_terminal_is_only_removed(self):
+        terminals.current.cache_clear()
+        self.addCleanup(terminals.current.cache_clear)
+        ran = []
+
+        def fake_run(command):
+            ran.append(command)
+            if command[:2] == ["hc", "get"]:
+                return json.dumps(dict(address="t7", state="ended", labels={"herdr.space": "sp1", "herdr.tab": "tb1"}))
+            return ""
+
+        with mock.patch.dict(config.CONFIG, {"runtime": "hc"}), \
+                mock.patch.object(terminals, "_run", side_effect=fake_run), \
+                mock.patch.object(terminals.subprocess, "run", side_effect=AssertionError("no hc kill")), \
+                mock.patch.object(fleet, "launch", return_value=dict(address="t9")) as launched, \
+                mock.patch.object(coordinator_restart, "open_inbox_panel"), \
+                mock.patch.object(coordinator_restart, "report_started"):
+            coordinator_restart.start_in("t7", "demo", "/work/demo", "Demo")
+        self.assertEqual(ran, [["hc", "get", "t7", "--json"], ["hc", "rm", "t7"]])
+        self.assertEqual(launched.call_args.kwargs["tab"], "tb1")
 
 
 if __name__ == "__main__":

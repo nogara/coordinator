@@ -31,6 +31,21 @@ class TestLabelsStore(unittest.TestCase):
             {"fleet.role": "worker", "fleet.domain": "demo"},
         )
 
+    def test_merge_holds_the_lock_and_keeps_both_writers_keys(self):
+        locked = []
+        real_flock = labels_store.fcntl.flock
+
+        def flock(fd, operation):
+            locked.append(operation)
+            return real_flock(fd, operation)
+
+        with mock.patch.object(labels_store.fcntl, "flock", side_effect=flock):
+            labels_store.merge("block:7", {"fleet.role": "worker"})
+            labels_store.merge("block:7", {"fleet.domain": "demo"})
+        self.assertEqual(labels_store.labels_for("block:7"), {"fleet.role": "worker", "fleet.domain": "demo"})
+        self.assertEqual(locked.count(labels_store.fcntl.LOCK_EX), 2)
+        self.assertTrue((self.label_dir() / ".lock").exists())
+
     def test_forget_removes_the_file_and_tolerates_a_missing_one(self):
         labels_store.merge("block:7", {"fleet.role": "worker"})
         labels_store.forget("block:7")
