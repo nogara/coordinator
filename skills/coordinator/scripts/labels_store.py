@@ -10,7 +10,6 @@ import json
 from pathlib import Path
 
 import config
-import watch_cache
 
 
 def _key(block_id: str) -> str:
@@ -42,19 +41,31 @@ def merge(block_id: str, labels: dict[str, str]) -> None:
             current.pop(key, None)
         else:
             current[key] = value
+    import watch_cache  # here, not at the top: watch_cache imports fleet, which imports terminals, which imports this
+
     _dir().mkdir(parents=True, exist_ok=True)
     watch_cache.save_json_atomic(_path(block_id), current)
 
 
-def prune(live_ids: set[str]) -> int:
-    """Delete label files for blocks not in live_ids; return how many were removed."""
+def prune(live_ids: set[str], older_than: float | None = None) -> int:
+    """Delete label files for blocks not in live_ids; return how many were removed.
+
+    With older_than, a file written at or after that time is kept: a block
+    launched while the listing ran is not in it, but its labels are fresh.
+    """
     directory = _dir()
     if not directory.is_dir():
         return 0
     live = {_key(block_id) for block_id in live_ids}
     removed = 0
     for path in directory.glob("*.json"):
-        if path.stem not in live:
-            path.unlink(missing_ok=True)
-            removed += 1
+        if path.stem in live:
+            continue
+        try:
+            if older_than is not None and path.stat().st_mtime >= older_than:
+                continue
+        except OSError:
+            continue
+        path.unlink(missing_ok=True)
+        removed += 1
     return removed

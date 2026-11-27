@@ -2,8 +2,9 @@
 Where the fleet's terminals live, and the one place that talks to them.
 
 Every call to `hc` (herdr-core) or `herdr-app` (the Herdr app) goes through
-HcTerminals; the rest of the scripts ask `current()` for the backend the
-user's `runtime` setting names. Terminals is the interface they rely on.
+HcTerminals, and every call to `rex` through RexTerminals; the rest of the
+scripts ask `current()` for the backend the user's `runtime` setting names.
+Terminals is the interface they rely on.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ import time
 import uuid
 from typing import Protocol
 
+import labels_store
 from check_error import CheckError
 from config import CONFIG
 
@@ -234,9 +236,256 @@ class HcTerminals:
         return panel["pane"]
 
 
+REX_NOT_FOUND = 3
+REX_TERMINAL_FLAVOR = "com.superlogical.terminal"
+# A stopped server must fail the call, not come back new and empty: an empty
+# fleet would read as every delegate gone and prune every label file.
+REX = ["rex", "--autostart=false"]
+SECONDS_BETWEEN_PASTE_AND_ENTER = 0.5
+
+
+class _RexGone(Exception):
+    """The block is not on the server: closed, or never there."""
+
+
+def _rex(args: list[str], *, timeout: float | None = COMMAND_TIMEOUT_SECONDS) -> str:
+    """Run rex; its stdout. _RexGone when the block named is not found, CheckError on any other failure."""
+    command = [*REX, *args]
+    try:
+        proc = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise CheckError(f"rex {' '.join(args[:3])}: {error}")
+    if proc.returncode == REX_NOT_FOUND and "not found" in proc.stderr:
+        raise _RexGone(proc.stderr.strip())
+    if proc.returncode != 0:
+        raise CheckError(f"rex {' '.join(args[:3])}: {(proc.stderr or proc.stdout).strip()[:300]}")
+    return proc.stdout
+
+
+def _rex_json(args: list[str]) -> dict:
+    out = _rex(args)
+    try:
+        return json.loads(out)
+    except ValueError:
+        raise CheckError(f"rex {' '.join(args[:3])} printed no JSON: {out.strip()[:200]}")
+
+
+def _root_record(records: list[dict]) -> dict | None:
+    return next((record for record in records if not record.get("id")), None)
+
+
+class RexTerminals:
+    """Rex blocks, driven with `rex`. Addresses are block ids; a block's labels live in labels_store.
+
+    herdr.space is the block's session id and herdr.tab its window id, so the
+    rest of the scripts keep reading them where hc puts them.
+    """
+
+    def _sessions(self) -> list[str]:
+        sessions = _rex_json(["ls", "--json"]).get("sessions")
+        if sessions is None:
+            raise CheckError("rex ls returned no sessions field")
+        return [session["session_id"] for session in sessions]
+
+    def _blocks(self, session: str) -> list[dict]:
+        blocks = _rex_json(["block", "ls", "-s", session, "--json"]).get("blocks")
+        if blocks is None:
+            raise CheckError(f"rex block ls -s {session} returned no blocks field")
+        return [block for block in blocks if (block.get("flavor") or "").startswith(REX_TERMINAL_FLAVOR)]
+
+    def _records(self, address: str) -> list[dict]:
+        return _rex_json(["block", "call", "-b", address, "program_status", "{}"]).get("records") or []
+
+    def ls(self) -> list[dict]:
+        listing_started = time.time()
+        listed = []
+        live = set()
+        for session in self._sessions():
+            for block in self._blocks(session):
+                live.add(block["block_id"])
+                try:
+                    root = _root_record(self._records(block["block_id"]))
+                except _RexGone:
+                    continue
+                listed.append(dict(address=block["block_id"], name=block.get("label"),
+                                   agent=AGENT_PROGRAM if (root or {}).get("app") == AGENT_PROGRAM else None,
+                                   status=root))
+        labels_store.prune(live, older_than=listing_started)
+        return listed
+
+    def get(self, address: str, *, strict: bool = False) -> dict | None:
+        try:
+            inspected = _rex_json(["block", "inspect", address, "--json"])
+            process = _rex_json(["block", "call", "-b", address, "process", "{}"])
+            records = self._records(address)
+        except _RexGone:
+            if strict:
+                raise CheckError(f"rex: no block {address}; it was closed")
+            return None
+        block = inspected.get("block") or {}
+        root = _root_record(records)
+        foreground = process.get("foreground") or {}
+        program = foreground.get("invoked_path") or foreground.get("argv0")
+        labels = labels_store.labels_for(address)
+        return dict(
+            address=address,
+            name=block.get("label"),
+            status={key: root.get(key) for key in ("state", "msg", "updated_at")} if root else None,
+            records={record["id"]: dict(state=record.get("state"), title=record.get("title") or record.get("msg"))
+                     for record in records if record.get("id")},
+            foreground=dict(pid=foreground.get("pid"), cwd=foreground.get("cwd"),
+                            argv=[program] if program else []) if foreground else None,
+            cwd=foreground.get("cwd"),
+            parent=labels.get("fleet.parent"),
+            turn=None,
+            labels={**labels, "herdr.space": inspected.get("session_id"), "herdr.tab": block.get("window_id")},
+        )
+
+    def launch(self, name: str | None, cwd: str, labels: dict[str, str], command: list[str], parent: str | None,
+               space: str, tab: str | None, tab_label: str) -> dict:
+        """Start a coding agent in a new window of the space's session, or as a split of window tab.
+
+        As HcTerminals.launch: the shell outlives the agent unless there is a
+        parent, and `running` is false when no agent showed in the block.
+        """
+        if name is not None and not TERMINAL_NAME.fullmatch(name):
+            raise CheckError(f"{name!r} is not a terminal name: 1 to 32 of a-z, 0-9, - and _")
+        shell = LOGIN_SHELL_THAT_BECOMES_ITS_COMMAND if parent else LOGIN_SHELL_THAT_OUTLIVES_ITS_COMMAND
+        if tab:
+            started = _rex_json(["run", "-w", tab, "--split", "right", "--focus=false",
+                                 *(["--label", name] if name else []), "-c", cwd, "--json", "--", *shell, *command])
+        else:
+            started = _rex_json(["window", "new", tab_label, "-s", space, "-c", cwd, "--focus=false",
+                                 "--shell", "none", "--json", "--", *shell, *command])
+        address = (started.get("block_ids") or [started.get("block_id")])[0]
+        if not address:
+            raise CheckError(f"rex did not say which block it opened: {json.dumps(started)[:200]}")
+        if name and not tab:
+            _rex(["block", "rename", address, name])
+        labels_store.merge(address, {**labels, **({"fleet.parent": parent} if parent else {})})
+        window = started.get("window_id") or tab
+        try:
+            terminal = self.get(address)
+        except CheckError:
+            terminal = None
+        terminal = terminal or dict(address=address, name=name,
+                                    labels={**labels_store.labels_for(address), "herdr.space": space,
+                                            "herdr.tab": window})
+        terminal["tab_named"] = self.rename_tab(tab, tab_label) if tab else True
+        terminal["running"] = self._agent_showed_in(address)
+        return terminal
+
+    def _agent_showed_in(self, address: str) -> bool:
+        deadline = time.time() + SECONDS_TO_WAIT_FOR_AGENT
+        while time.time() < deadline:
+            try:
+                terminal = self.get(address)
+            except CheckError:
+                terminal = {}
+            if terminal is None:
+                return False
+            argv = (terminal.get("foreground") or {}).get("argv") or []
+            if terminal.get("status") is not None or (argv and os.path.basename(argv[0]) == "claude"):
+                return True
+            time.sleep(1)
+        return False
+
+    def send(self, address: str, text: str, tagged: bool = True, *, structured: bool = False,
+             timeout: float | None = COMMAND_TIMEOUT_SECONDS) -> subprocess.CompletedProcess:
+        """Paste the text, then press Enter: two calls, and no Enter when the paste failed.
+
+        From a block, the text starts with a <rex from="..."> line, as hc's
+        sender tag; tagged=False leaves it out. structured has no meaning here.
+        """
+        sender = self.self_address() if tagged else None
+        if sender:
+            text = f'<rex from="{sender}">\n{text}'
+        event = dict(block_id=address, event=dict(type="paste", payload=dict(text=text)))
+        pasted = subprocess.run([*REX, "api", "call", "-s", address, "block.event", "-"], input=json.dumps(event),
+                                capture_output=True, text=True, timeout=timeout)
+        if pasted.returncode != 0:
+            return pasted
+        time.sleep(SECONDS_BETWEEN_PASTE_AND_ENTER)
+        return subprocess.run([*REX, "send-key", "-b", address, "enter"], capture_output=True, text=True,
+                              timeout=timeout)
+
+    def read(self, address: str, lines: int | None = None, *, strict: bool = False,
+             timeout: float | None = COMMAND_TIMEOUT_SECONDS) -> str:
+        if strict:
+            try:
+                screen = _rex(["capture", "-b", address, "--trim"], timeout=timeout)
+            except _RexGone:
+                raise CheckError(f"rex: no block {address}; it was closed")
+        else:
+            screen = subprocess.run([*REX, "capture", "-b", address, "--trim"], capture_output=True, text=True,
+                                    timeout=timeout).stdout
+        return screen if lines is None else "".join(screen.splitlines(keepends=True)[-lines:])
+
+    def keys(self, address: str, keys: list[str]) -> None:
+        """Single characters are typed with `rex send`; named keys such as enter are pressed with `rex send-key`."""
+        index = 0
+        while index < len(keys):
+            typed = len(keys[index]) == 1
+            end = index
+            while end < len(keys) and (len(keys[end]) == 1) == typed:
+                end += 1
+            run = keys[index:end]
+            try:
+                if typed:
+                    _rex(["send", "-b", address, "--", "".join(run)])
+                else:
+                    _rex(["send-key", "-b", address, *run])
+            except _RexGone:
+                raise CheckError(f"rex: no block {address}; it was closed")
+            index = end
+
+    def set_labels(self, address: str, labels: dict[str, str], *, quiet_timeout: float | None = None) -> None:
+        """Merge into the block's label file. quiet_timeout ignores a failed write."""
+        if quiet_timeout is None:
+            labels_store.merge(address, labels)
+            return
+        try:
+            labels_store.merge(address, labels)
+        except OSError:
+            pass
+
+    def end(self, address: str) -> None:
+        """Close the block's window when the block is alone in it, else the block. A gone block is left as it is."""
+        try:
+            inspected = _rex_json(["block", "inspect", address, "--json"])
+            window = (inspected.get("block") or {}).get("window_id")
+            in_window = [block for block in _rex_json(["block", "ls", "-s", inspected["session_id"], "--json"])
+                         .get("blocks") or [] if block.get("window_id") == window]
+            if window and len(in_window) == 1:
+                _rex(["window", "close", window])
+            else:
+                _rex(["block", "close", address])
+        except _RexGone:
+            return
+
+    def self_address(self) -> str | None:
+        return os.environ.get("REX_BLOCK")
+
+    def rename_tab(self, tab: str, label: str) -> bool:
+        """Name a Rex window."""
+        try:
+            _rex(["window", "rename", tab, label])
+        except (CheckError, _RexGone):
+            return False
+        return True
+
+    def focus_hint(self, address: str) -> str | None:
+        """The command that shows the block; printed for the user, never run, so focus is never taken."""
+        return f"In Rex, this agent is block {address}: rex focus {address}"
+
+    def inbox_panel(self, address: str, pane: str | None) -> str | None:
+        print(f"Rex has no inbox panel, so none was opened beside block {address}. Typing /inbox in the session opens it.")
+        return None
+
+
 @functools.lru_cache(maxsize=None)
 def current() -> Terminals:
     runtime = CONFIG["runtime"]
     if runtime == "hc":
         return HcTerminals()
-    raise CheckError(f"runtime {runtime} is not implemented yet")
+    return RexTerminals()
