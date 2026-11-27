@@ -15,7 +15,8 @@ Start, restart and stop coordinators in the Herdr app.
 Run it when the user asks. A restart gives the coordinator a new Claude Code
 process, so it loads the installed Claude Code and the current skill text.
 The new session starts in the same terminal, so its address, its tab and
-its delegates' link to it stay. When that terminal ended with its session,
+its delegates' link to it stay. On Rex a restart instead opens a new block in a
+new window of the same session, and the old block closes. When that terminal ended with its session,
 the new one starts in a new terminal in the same tab. Its conversation and
 its inbox do not carry over: the backlog does, which is why `ask` comes
 first. `ask` sends the coordinator the user's reason and the Restart steps from
@@ -188,12 +189,18 @@ def coordinator_name(domain: str) -> str:
     return " ".join(word.capitalize() for word in domain.split("-") if word)
 
 
-def start_in(address: str, domain: str, cwd: str, label: str) -> None:
-    """Start a new coordinator session in `cwd`, in a terminal at a shell prompt or one whose agent has exited."""
+def start_in(address: str, domain: str, cwd: str, label: str, reopen: bool = False) -> None:
+    """Start a new coordinator session in `cwd`, in a terminal at a shell prompt or one whose agent has exited.
+
+    reopen starts it in a new terminal even though the old one still lives, as a Rex restart does.
+    """
     terminal = terminals.current().get(address, strict=True)
     program = [fleet.CLAUDE, "--name", label, f"/coordinator {domain}"]
-    if terminal.get("state") == "live":
-        at_a_shell = (listed(address) or {}).get("agent") in SHELLS
+    if terminal.get("state") == "live" and not reopen:
+        shown = listed(address) or {}
+        # Rex lists a shell with no agent at all; hc names the shell.
+        at_a_shell = shown.get("agent") in SHELLS or (
+            isinstance(terminals.current(), terminals.RexTerminals) and not fleet.runs_an_agent(shown))
         if not at_a_shell:
             raise Refused(f"terminal {address} is not at a shell prompt, so a command typed there would go to its program")
         terminals.current().set_labels(address, {"fleet.role": "coordinator", "fleet.domain": domain, **PINNED})
@@ -231,9 +238,7 @@ def open_inbox_panel(address: str) -> None:
         if (terminal.get("labels") or {}).get("inbox.panel"):
             return
         pane = terminals.current().inbox_panel(address, None)
-        if pane is None:
-            print("inbox panel: not available on rex")
-        else:
+        if pane is not None:  # None: the backend already said why there is no panel
             terminals.current().set_labels(address, {"inbox.panel": pane})
     except (CheckError, KeyError, ValueError) as error:
         print(f"The inbox panel was not opened beside terminal {address}: {error}. Typing /inbox in the session opens it.")
@@ -314,6 +319,8 @@ def main() -> int:
             own = fleet.find_agent(herd.agents, own_address or "")
             space = args.space or (own or {}).get("space")
             if not space:
+                if isinstance(terminals.current(), terminals.RexTerminals):
+                    raise CheckError("pass --session <session id>; this terminal has no Rex session")
                 raise CheckError("pass --space <space id> from `herdr-app ls`; this terminal has no herdr.space label")
             terminal = fleet.launch(
                 name=None, cwd=cwd, tab_label=label,
@@ -340,7 +347,8 @@ def main() -> int:
             print(f"The {domain} coordinator exited. Terminal {agent['address']} holds a shell. Start a new one with:\n"
                   f"  {fleet.SCRIPTS}/coordinator_restart.py start {domain} --cwd {agent['cwd']} --in {agent['address']}")
             return 0
-        start_in(agent["address"], domain, agent["cwd"], label)
+        start_in(agent["address"], domain, agent["cwd"], label,
+                 reopen=isinstance(terminals.current(), terminals.RexTerminals))
         return 0
     except Refused as refusal:
         print(f"REFUSED  {refusal}")

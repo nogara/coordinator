@@ -393,6 +393,40 @@ class TestCoordinatorRestart(RexTestCase):
         self.assertFalse(old_label_file.exists())
         self.assertNotIn("--focus=true", sum(calls, []))
 
+    def start_in_args(self, block_id):
+        folder = self.sb.backlog_dir
+        self.sb.write_notes("demo", "# Demo\n\n## Open\n\n## Done\n")
+        return (mock.patch.object(fleet, "domain_files", functools.partial(fleet.domain_files, folder=folder)),
+                mock.patch.object(fleet, "domains_in", functools.partial(fleet.domains_in, folder=folder)),
+                mock.patch.object(fleet, "why_not_a_domain", functools.partial(fleet.why_not_a_domain, folder=folder)),
+                mock.patch.object(coordinator_restart, "report_started"),
+                mock.patch.object(coordinator_restart.inbox_state, "inbox_store", return_value=None),
+                mock.patch("sys.argv", ["coordinator_restart.py", "start", "demo", "--cwd", str(self.sb.root),
+                                         "--in", block_id]))
+
+    def run_start_in(self, block_id):
+        from contextlib import ExitStack
+        with ExitStack() as stack:
+            for patch in self.start_in_args(block_id):
+                stack.enter_context(patch)
+            return coordinator_restart.main()
+
+    def test_start_in_a_rex_shell_reuses_the_block(self):
+        self.stub([block("block:sh", "shell", "window:1")])
+        self.assertEqual(self.run_start_in("block:sh"), 0)
+        calls = self.sb.rex_calls()
+        self.assertFalse([c for c in calls if c[:2] == ["window", "new"] or c[0] == "run"])
+        self.assertFalse([c for c in calls if c[1:2] == ["close"]])
+        self.assertEqual(labels_store.labels_for("block:sh")["fleet.role"], "coordinator")
+        self.assertTrue(self.sb.rex_calls() and any(c[:1] == ["api"] for c in calls))
+
+    def test_start_in_a_rex_block_running_an_agent_is_refused_untouched(self):
+        self.stub([block("block:a", "a", "window:1")], statuses={"block:a": {"records": [root_record("idle", "")]}},
+                  processes={"block:a": claude_process()})
+        self.assertEqual(self.run_start_in("block:a"), 1)
+        calls = self.sb.rex_calls()
+        self.assertFalse([c for c in calls if c[:2] == ["window", "new"] or c[1:2] == ["close"]])
+
 
 if __name__ == "__main__":
     unittest.main()

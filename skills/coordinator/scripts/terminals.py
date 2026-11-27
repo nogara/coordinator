@@ -344,6 +344,7 @@ class RexTerminals:
         labels = labels_store.labels_for(address)
         return dict(
             address=address,
+            state="live",
             name=block.get("label"),
             status={key: root.get(key) for key in ("state", "msg", "updated_at")} if root else None,
             records={record["id"]: dict(state=record.get("state"), title=record.get("title") or record.get("msg"))
