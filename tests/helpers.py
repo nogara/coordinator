@@ -53,14 +53,16 @@ class Sandbox:
 
     def write_rex_stub(self, blocks: list[dict], statuses: dict, processes: dict, gone: set[str],
                        fail_ls: bool = False, *, screens: dict | None = None, fail_paste: bool = False,
-                       new_block: str = "block:new", new_window: str = "window:new") -> Path:
+                       new_block: str = "block:new", new_window: str = "window:new",
+                       gone_sessions: tuple[str, ...] = ()) -> Path:
         """A fake `rex` on PATH. blocks are `rex block ls` entries plus their session_id; statuses
         and processes are the `program_status` and `process` answers by block id; a block in gone
         answers as a closed one does (exit 3, not found). Every call's argv goes to rex.calls as a
-        JSON list, and the pasted event JSON to rex.stdin."""
+        JSON list, and the pasted event JSON to rex.stdin. A session in gone_sessions is listed by
+        `rex ls` but answers not found after that, as one closed between the calls does."""
         fixtures = dict(blocks=blocks, statuses=statuses, processes=processes, gone=sorted(gone),
                         fail_ls=fail_ls, screens=screens or {}, fail_paste=fail_paste,
-                        new_block=new_block, new_window=new_window)
+                        new_block=new_block, new_window=new_window, gone_sessions=list(gone_sessions))
         (self.root / "rex-fixtures.json").write_text(json.dumps(fixtures))
         path = self.bin_dir / "rex"
         path.write_text(f"#!{sys.executable}\n" + REX_STUB.replace("ROOT", repr(str(self.root))))
@@ -153,6 +155,12 @@ def not_found(block):
         sys.exit(3)
 
 
+def session_gone(session):
+    if session in f["gone_sessions"]:
+        print(f'Error: session target "{session}" not found', file=sys.stderr)
+        sys.exit(3)
+
+
 def placed(block):
     return {k: v for k, v in blocks[block].items() if k != "session_id"}
 
@@ -161,10 +169,11 @@ if argv[:2] == ["ls", "--json"]:
     if f["fail_ls"]:
         print("Error: connect to the Rex server: connection refused", file=sys.stderr)
         sys.exit(1)
-    sessions = list(dict.fromkeys(b["session_id"] for b in f["blocks"]))
+    sessions = list(dict.fromkeys([*(b["session_id"] for b in f["blocks"]), *f["gone_sessions"]]))
     out(dict(sessions=[dict(session_id=s, label=s.split(":")[-1]) for s in sessions]))
 if argv[:2] == ["block", "ls"]:
     session = argv[argv.index("-s") + 1]
+    session_gone(session)
     out(dict(blocks=[placed(b) for b in blocks if blocks[b]["session_id"] == session]))
 if argv[:2] == ["block", "inspect"]:
     not_found(argv[2])
@@ -182,6 +191,8 @@ if argv[:1] == ["capture"]:
     print(f["screens"].get(block, ""))
     sys.exit(0)
 if argv[:2] == ["window", "new"] or argv[:1] == ["run"]:
+    if "-s" in argv:
+        session_gone(argv[argv.index("-s") + 1])
     out(dict(window_id=f["new_window"], block_ids=[f["new_block"]], revision=1))
 if argv[:2] == ["api", "call"]:
     with (root / "rex.stdin").open("a") as log:

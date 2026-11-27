@@ -91,6 +91,27 @@ class TestListing(RexTestCase):
         self.assertIsNone(listed["status"])
         self.assertIsNone(listed["agent"])
 
+    def test_session_closed_between_ls_and_block_ls_is_skipped(self):
+        self.stub([block("block:a", "a", "window:1")], gone_sessions=("session:closed",))
+        self.assertEqual([t["address"] for t in self.rex.ls()], ["block:a"])
+        self.assertIn(["block", "ls", "-s", "session:closed", "--json"], self.sb.rex_calls())
+
+    def test_non_claude_status_block_is_not_an_agent(self):
+        mole = dict(state="done", app="mole", effective_app="mole", msg="", updated_at="t")
+        self.stub([block("block:a", "a", "window:1"), block("block:m", "m", "window:2")],
+                  statuses={"block:a": {"records": [root_record()]}, "block:m": {"records": [mole]}},
+                  processes={"block:a": claude_process(),
+                             "block:m": dict(foreground=dict(pid=7, invoked_path="/bin/mole", argv0="mole", cwd="/"))})
+        listed = {t["address"]: t for t in self.rex.ls()}
+        self.assertIsNone(listed["block:m"]["status"])
+        self.assertIsNone(listed["block:m"]["agent"])
+        self.assertIsNone(self.rex.get("block:m")["status"])
+        self.assertEqual([a["address"] for a in fleet.load_agents()], ["block:a"])
+
+    def test_claude_started_from_its_shell_is_an_agent_without_status(self):
+        self.stub([block("block:a", "a", "window:1")], processes={"block:a": claude_process()})
+        self.assertEqual([a["address"] for a in fleet.load_agents()], ["block:a"])
+
     def test_ls_skips_non_terminal_blocks(self):
         self.stub([block("block:a", "a", "window:1"),
                    block("block:web", "web", "window:1", flavor="com.superlogical.browser")])
@@ -180,26 +201,41 @@ class TestGet(RexTestCase):
 
 class TestLaunch(RexTestCase):
     def new_block_fixture(self, **kwargs):
-        self.stub([block("block:new", "shell", "window:new")],
+        # Two sessions, the space being the second one, so "first session" cannot pass for the space.
+        self.stub([block("block:boss", "boss", "window:1", SESSION),
+                   block("block:new", "shell", "window:new", OTHER_SESSION)],
                   statuses={"block:new": {"records": [root_record("idle", "")]}},
                   processes={"block:new": claude_process()}, **kwargs)
 
     def test_launch_opens_in_the_space_session(self):
         self.new_block_fixture()
         started = self.rex.launch("dlg-1", "/work", {"fleet.role": "worker", "fleet.domain": "demo"},
-                                  ["claude", "--model", "opus"], "block:boss", SESSION, None, "Demo")
+                                  ["claude", "--model", "opus"], "block:boss", OTHER_SESSION, None, "Demo")
         calls = self.sb.rex_calls()
         new = calls[0]
         self.assertEqual(new[:new.index("--") + 1],
-                         ["window", "new", "Demo", "-s", SESSION, "-c", "/work", "--focus=false", "--shell", "none",
+                         ["window", "new", "Demo", "-s", OTHER_SESSION, "-c", "/work", "--focus=false", "--shell", "none",
                           "--json", "--"])
         self.assertEqual(new[-3:], ["claude", "--model", "opus"])
         self.assertEqual(calls[1], ["block", "rename", "block:new", "dlg-1"])
         self.assertEqual(labels_store.labels_for("block:new"),
                          {"fleet.role": "worker", "fleet.domain": "demo", "fleet.parent": "block:boss"})
         self.assertEqual(started["address"], "block:new")
+        self.assertEqual(started["labels"]["herdr.space"], OTHER_SESSION)
         self.assertTrue(started["tab_named"])
         self.assertTrue(started["running"])
+
+    def test_launch_into_a_closed_space_raises_check_error_naming_it(self):
+        self.stub([block("block:a", "a", "window:1")], gone_sessions=("session:closed",))
+        with self.assertRaises(CheckError) as caught:
+            self.rex.launch("dlg-3", "/work", {}, ["claude"], None, "session:closed", None, "Demo")
+        self.assertIn("session:closed", str(caught.exception))
+
+    def test_launch_whose_block_closes_before_rename_raises_check_error(self):
+        self.stub([block("block:a", "a", "window:1")], gone={"block:new"})
+        with self.assertRaises(CheckError) as caught:
+            self.rex.launch("dlg-4", "/work", {}, ["claude"], None, SESSION, None, "Demo")
+        self.assertIn("block:new", str(caught.exception))
 
     def test_launch_with_tab_splits_that_window(self):
         self.new_block_fixture()

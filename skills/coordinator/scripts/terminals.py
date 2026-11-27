@@ -249,7 +249,7 @@ class _RexGone(Exception):
 
 
 def _rex(args: list[str], *, timeout: float | None = COMMAND_TIMEOUT_SECONDS) -> str:
-    """Run rex; its stdout. _RexGone when the block named is not found, CheckError on any other failure."""
+    """Run rex; its stdout. _RexGone when the block, window or session named is not found, CheckError on any other failure."""
     command = [*REX, *args]
     try:
         proc = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
@@ -274,6 +274,14 @@ def _root_record(records: list[dict]) -> dict | None:
     return next((record for record in records if not record.get("id")), None)
 
 
+def _agent_record(records: list[dict]) -> dict | None:
+    """The root record when Claude Code reports it; other programs that report a status are not agents."""
+    root = _root_record(records)
+    if root and AGENT_PROGRAM in (root.get("app"), root.get("effective_app")):
+        return root
+    return None
+
+
 class RexTerminals:
     """Rex blocks, driven with `rex`. Addresses are block ids; a block's labels live in labels_store.
 
@@ -282,7 +290,10 @@ class RexTerminals:
     """
 
     def _sessions(self) -> list[str]:
-        sessions = _rex_json(["ls", "--json"]).get("sessions")
+        try:
+            sessions = _rex_json(["ls", "--json"]).get("sessions")
+        except _RexGone as gone:
+            raise CheckError(f"rex ls: {gone}")
         if sessions is None:
             raise CheckError("rex ls returned no sessions field")
         return [session["session_id"] for session in sessions]
@@ -301,14 +312,18 @@ class RexTerminals:
         listed = []
         live = set()
         for session in self._sessions():
-            for block in self._blocks(session):
+            try:
+                blocks = self._blocks(session)
+            except _RexGone:
+                continue  # the session closed after `rex ls` listed it; its blocks are gone, not unread
+            for block in blocks:
                 live.add(block["block_id"])
                 try:
-                    root = _root_record(self._records(block["block_id"]))
+                    root = _agent_record(self._records(block["block_id"]))
                 except _RexGone:
                     continue
                 listed.append(dict(address=block["block_id"], name=block.get("label"),
-                                   agent=AGENT_PROGRAM if (root or {}).get("app") == AGENT_PROGRAM else None,
+                                   agent=AGENT_PROGRAM if root else None,
                                    status=root))
         labels_store.prune(live, older_than=listing_started)
         return listed
@@ -323,7 +338,7 @@ class RexTerminals:
                 raise CheckError(f"rex: no block {address}; it was closed")
             return None
         block = inspected.get("block") or {}
-        root = _root_record(records)
+        root = _agent_record(records)
         foreground = process.get("foreground") or {}
         program = foreground.get("invoked_path") or foreground.get("argv0")
         labels = labels_store.labels_for(address)
@@ -351,17 +366,24 @@ class RexTerminals:
         if name is not None and not TERMINAL_NAME.fullmatch(name):
             raise CheckError(f"{name!r} is not a terminal name: 1 to 32 of a-z, 0-9, - and _")
         shell = LOGIN_SHELL_THAT_BECOMES_ITS_COMMAND if parent else LOGIN_SHELL_THAT_OUTLIVES_ITS_COMMAND
-        if tab:
-            started = _rex_json(["run", "-w", tab, "--split", "right", "--focus=false",
-                                 *(["--label", name] if name else []), "-c", cwd, "--json", "--", *shell, *command])
-        else:
-            started = _rex_json(["window", "new", tab_label, "-s", space, "-c", cwd, "--focus=false",
-                                 "--shell", "none", "--json", "--", *shell, *command])
+        try:
+            if tab:
+                started = _rex_json(["run", "-w", tab, "--split", "right", "--focus=false",
+                                     *(["--label", name] if name else []), "-c", cwd, "--json", "--", *shell, *command])
+            else:
+                started = _rex_json(["window", "new", tab_label, "-s", space, "-c", cwd, "--focus=false",
+                                     "--shell", "none", "--json", "--", *shell, *command])
+        except _RexGone as gone:
+            where = f"window {tab}" if tab else f"session {space}"
+            raise CheckError(f"rex: cannot open a block in {where}, which is gone: {gone}")
         address = (started.get("block_ids") or [started.get("block_id")])[0]
         if not address:
             raise CheckError(f"rex did not say which block it opened: {json.dumps(started)[:200]}")
         if name and not tab:
-            _rex(["block", "rename", address, name])
+            try:
+                _rex(["block", "rename", address, name])
+            except _RexGone as gone:
+                raise CheckError(f"rex: block {address} closed before it could be named {name}: {gone}")
         labels_store.merge(address, {**labels, **({"fleet.parent": parent} if parent else {})})
         window = started.get("window_id") or tab
         try:
