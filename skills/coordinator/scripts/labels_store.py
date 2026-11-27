@@ -47,6 +47,11 @@ def merge(block_id: str, labels: dict[str, str]) -> None:
     watch_cache.save_json_atomic(_path(block_id), current)
 
 
+def forget(block_id: str) -> None:
+    """Delete the block's label file; no file is no error."""
+    _path(block_id).unlink(missing_ok=True)
+
+
 def prune(live_ids: set[str], older_than: float | None = None) -> int:
     """Delete label files for blocks not in live_ids; return how many were removed.
 

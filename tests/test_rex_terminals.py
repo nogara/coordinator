@@ -1,6 +1,7 @@
 """Tests for RexTerminals, the Rex backend of terminals.py, against a fake `rex` on PATH."""
 from __future__ import annotations
 
+import functools
 import json
 import os
 import unittest
@@ -10,6 +11,7 @@ from tests.helpers import Sandbox, add_script_paths
 
 add_script_paths()
 import config  # noqa: E402
+import coordinator_restart  # noqa: E402
 import fleet  # noqa: E402
 import labels_store  # noqa: E402
 import terminals  # noqa: E402
@@ -350,6 +352,46 @@ class TestEndAndMisc(RexTestCase):
             self.assertIsNone(self.rex.inbox_panel("block:a", None))
         printed.assert_called()
         self.assertEqual(self.sb.rex_calls(), [])
+
+
+class TestCoordinatorRestart(RexTestCase):
+    def test_restart_on_rex_reopens_in_same_session_and_relabels(self):
+        self.sb.write_notes("demo", "# Demo\n\n## Open\n\n## Done\n")
+        labels_store.merge("block:old", {"fleet.role": "coordinator", "fleet.domain": "demo", "herdr.pinned": "1"})
+        screen = "\u23fa ready for restart\n\u276f /exit\n"
+        self.stub([block("block:old", "Demo", "window:1", OTHER_SESSION),
+                   block("block:new", "Demo", "window:new", OTHER_SESSION)],
+                  statuses={"block:old": {"records": [root_record("idle", "")]},
+                            "block:new": {"records": [root_record("idle", "")]}},
+                  processes={"block:old": claude_process(4242, "/work/demo"),
+                             "block:new": claude_process(4243, "/work/demo")},
+                  screens={"block:old": screen})
+        old_label_file = self.sb.state_dir / "rex-labels" / "old.json"
+        self.assertTrue(old_label_file.exists())
+        gone_after_exit = mock.Mock(return_value=None)
+        folder = self.sb.backlog_dir
+        with mock.patch.object(fleet, "domain_files", functools.partial(fleet.domain_files, folder=folder)), \
+                mock.patch.object(fleet, "domains_in", functools.partial(fleet.domains_in, folder=folder)), \
+                mock.patch.object(fleet, "why_not_a_domain", functools.partial(fleet.why_not_a_domain, folder=folder)), \
+                mock.patch.object(coordinator_restart, "listed", gone_after_exit), \
+                mock.patch.object(coordinator_restart, "background_copies_since", return_value=[]), \
+                mock.patch.object(coordinator_restart, "report_started"), \
+                mock.patch.object(coordinator_restart.inbox_state, "inbox_store", return_value=None), \
+                mock.patch("sys.argv", ["coordinator_restart.py", "restart", "demo"]):
+            self.assertEqual(coordinator_restart.main(), 0)
+        calls = self.sb.rex_calls()
+        sent = [c for c in calls if c[0] in ("send", "send-key")]
+        self.assertEqual(sent[0], ["send", "-b", "block:old", "--", "/exit"])
+        self.assertEqual(sent[1], ["send-key", "-b", "block:old", "enter"])
+        new = next(c for c in calls if c[:2] == ["window", "new"])
+        self.assertLess(calls.index(sent[1]), calls.index(new))
+        self.assertEqual(new[:new.index("--")],
+                         ["window", "new", "Demo", "-s", OTHER_SESSION, "-c", "/work/demo", "--focus=false",
+                          "--shell", "none", "--json"])
+        self.assertEqual(labels_store.labels_for("block:new"),
+                         {"fleet.role": "coordinator", "fleet.domain": "demo", "herdr.pinned": "1"})
+        self.assertFalse(old_label_file.exists())
+        self.assertNotIn("--focus=true", sum(calls, []))
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ Start, restart and stop coordinators in the Herdr app.
   coordinator_restart.py restart <domain> --terminal <address>
                                                    replace whatever session runs in that terminal
   coordinator_restart.py stop <domain>             exit one that replied ready and leave its terminal a shell
-  coordinator_restart.py start <domain> --cwd <path> [--space <space id>] [--name <tab name>]
+  coordinator_restart.py start <domain> --cwd <path> [--space <space id> | --session <Rex session id>] [--name <tab name>]
                                                    start one in a new tab, for a domain that has none running
   coordinator_restart.py start <domain> --cwd <path> --in <address>
                                                    start one in a terminal that holds only a shell
@@ -58,6 +58,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fleet  # noqa: E402
 import inbox_state  # noqa: E402
+import labels_store  # noqa: E402
 import terminals  # noqa: E402
 from fleet import CheckError, run  # noqa: E402
 
@@ -203,12 +204,16 @@ def start_in(address: str, domain: str, cwd: str, label: str) -> None:
     if not labels.get("herdr.space"):
         raise CheckError(f"terminal {address} ended and has no herdr.space label, so the new session has no space to open in")
     carried = {key: labels[key] for key in ("inbox.panel",) if key in labels}
+    on_rex = isinstance(terminals.current(), terminals.RexTerminals)
     started = fleet.launch(
-        name=None, cwd=cwd, tab_label=label, space=labels["herdr.space"], tab=labels.get("herdr.tab"),
+        # On Rex the new session gets a window of its own in the old one's session, never a split of the old window.
+        name=None, cwd=cwd, tab_label=label, space=labels["herdr.space"], tab=None if on_rex else labels.get("herdr.tab"),
         labels={"fleet.role": "coordinator", "fleet.domain": domain, **PINNED, **carried},
         program=program, parent=None,
     )
     terminals.current().end(address)
+    if on_rex:
+        labels_store.forget(address)
     open_inbox_panel(started["address"])
     report_started(started["address"], domain)
 
@@ -226,7 +231,9 @@ def open_inbox_panel(address: str) -> None:
         if (terminal.get("labels") or {}).get("inbox.panel"):
             return
         pane = terminals.current().inbox_panel(address, None)
-        if pane is not None:
+        if pane is None:
+            print("inbox panel: not available on rex")
+        else:
             terminals.current().set_labels(address, {"inbox.panel": pane})
     except (CheckError, KeyError, ValueError) as error:
         print(f"The inbox panel was not opened beside terminal {address}: {error}. Typing /inbox in the session opens it.")
@@ -264,7 +271,9 @@ def main() -> int:
     start.add_argument("domain")
     start.add_argument("--cwd", required=True)
     start.add_argument("--name", help='the tab and session name; default: the domain in title case, as "Web App"')
-    start.add_argument("--space", help="the Herdr app space id, from `herdr-app ls`; default: this terminal's space")
+    start.add_argument("--space", "--session", dest="space",
+                       help="the Herdr app space id from `herdr-app ls`, or the Rex session id; "
+                            "default: this terminal's space or session")
     start.add_argument("--in", dest="in_terminal", metavar="ADDRESS",
                        help="start in this terminal, which holds only a shell")
     args = parser.parse_args()

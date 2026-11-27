@@ -31,6 +31,13 @@ class TestLabelsStore(unittest.TestCase):
             {"fleet.role": "worker", "fleet.domain": "demo"},
         )
 
+    def test_forget_removes_the_file_and_tolerates_a_missing_one(self):
+        labels_store.merge("block:7", {"fleet.role": "worker"})
+        labels_store.forget("block:7")
+        self.assertFalse((self.label_dir() / "7.json").exists())
+        self.assertEqual(labels_store.labels_for("block:7"), {})
+        labels_store.forget("block:7")
+
     def test_merge_keeps_other_keys(self):
         labels_store.merge("block:7", {"fleet.role": "worker"})
         labels_store.merge("block:7", {"inbox.state": "open"})
