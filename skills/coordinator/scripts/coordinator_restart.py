@@ -58,6 +58,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fleet  # noqa: E402
 import inbox_state  # noqa: E402
+import terminals  # noqa: E402
 from fleet import CheckError, run  # noqa: E402
 
 READY = "ready for restart"
@@ -88,7 +89,7 @@ def ask_text(reason: str) -> str:
 
 
 def replied_ready(address: str) -> bool:
-    text = run(["hc", "read", "--lines", "400", address])
+    text = terminals.current().read(address, 400, strict=True)
     return any(line.strip().lower().startswith(f"{REPLY_MARK} {READY}") for line in text.splitlines())
 
 
@@ -128,7 +129,7 @@ def background_copies_since(started_ms: float) -> list[str]:
 
 def prompt_box_text(address: str) -> str | None:
     """The text in the session's prompt box, or None when its screen shows no prompt box."""
-    lines = run(["hc", "read", address]).splitlines()
+    lines = terminals.current().read(address, strict=True).splitlines()
     prompts = [line for line in lines if line.strip().startswith(PROMPT_MARK)]
     return prompts[-1].split(PROMPT_MARK, 1)[1].replace("\xa0", " ").strip() if prompts else None
 
@@ -142,13 +143,13 @@ def exit_session(agent: dict) -> None:
     """
     address = agent["address"]
     asked_at_ms = time.time() * 1000
-    run(["hc", "keys", address, *EXIT_COMMAND])
+    terminals.current().keys(address, EXIT_COMMAND)
     typed = prompt_box_text(address)
     if typed != EXIT_COMMAND:
-        run(["hc", "keys", address, *(["backspace"] * len(EXIT_COMMAND))])
+        terminals.current().keys(address, ["backspace"] * len(EXIT_COMMAND))
         raise Refused(f"the prompt box in terminal {address} holds {typed!r} after typing {EXIT_COMMAND}, so someone "
                       "has a draft there; the typed command was removed")
-    run(["hc", "keys", address, "enter"])
+    terminals.current().keys(address, ["enter"])
     deadline = time.time() + SECONDS_TO_WAIT_FOR_EXIT
     while time.time() < deadline:
         time.sleep(POLL_SECONDS)
@@ -156,7 +157,7 @@ def exit_session(agent: dict) -> None:
         if terminal is None or not fleet.runs_an_agent(terminal):
             break
     else:
-        screen = subprocess.run(["hc", "read", address], capture_output=True, text=True).stdout.strip()[-800:]
+        screen = terminals.current().read(address, timeout=None).strip()[-800:]
         raise CheckError(f"the session in terminal {address} did not exit within {SECONDS_TO_WAIT_FOR_EXIT} seconds. "
                          f"Its screen:\n{screen}")
     copies = background_copies_since(asked_at_ms)
@@ -171,9 +172,7 @@ def send_bare_text(address: str, text: str) -> None:
     From a terminal, `hc send` wraps the text in an <hc from="..."> tag, which
     a shell cannot run.
     """
-    environment = {key: value for key, value in os.environ.items() if key != "HC_TERMINAL_ID"}
-    sent = subprocess.run(["hc", "send", address, text], capture_output=True, text=True, env=environment,
-                          timeout=fleet.COMMAND_TIMEOUT_SECONDS + 60)
+    sent = terminals.current().send(address, text, tagged=False, timeout=fleet.COMMAND_TIMEOUT_SECONDS + 60)
     if sent.returncode != 0:
         raise CheckError(f"hc send {address}: {(sent.stderr or sent.stdout).strip()[:300]}")
 
@@ -190,13 +189,15 @@ def coordinator_name(domain: str) -> str:
 
 def start_in(address: str, domain: str, cwd: str, label: str) -> None:
     """Start a new coordinator session in `cwd`, in a terminal at a shell prompt or one whose agent has exited."""
-    terminal = json.loads(run(["hc", "get", address, "--json"]))
+    terminal = terminals.current().get(address)
+    if terminal is None:
+        raise CheckError(f"hc get {address} --json: no such terminal")
     program = [fleet.CLAUDE, "--name", label, f"/coordinator {domain}"]
     if terminal.get("state") == "live":
         at_a_shell = (listed(address) or {}).get("agent") in SHELLS
         if not at_a_shell:
             raise Refused(f"terminal {address} is not at a shell prompt, so a command typed there would go to its program")
-        run(["hc", "label", address, "fleet.role=coordinator", f"fleet.domain={domain}", *(f"{k}={v}" for k, v in PINNED.items())])
+        terminals.current().set_labels(address, {"fleet.role": "coordinator", "fleet.domain": domain, **PINNED})
         send_bare_text(address, f"cd {shlex.quote(cwd)} && {shlex.join(program)}")
         report_started(address, domain)
         return
@@ -209,7 +210,7 @@ def start_in(address: str, domain: str, cwd: str, label: str) -> None:
         labels={"fleet.role": "coordinator", "fleet.domain": domain, **PINNED, **carried},
         program=program, parent=None,
     )
-    run(["hc", "rm", address])
+    terminals.current().end(address)
     open_inbox_panel(started["address"])
     report_started(started["address"], domain)
 
@@ -226,13 +227,9 @@ def open_inbox_panel(address: str) -> None:
         terminal = fleet.terminal_or_none(address) or {}
         if (terminal.get("labels") or {}).get("inbox.panel"):
             return
-        shown = json.loads(run(["herdr-app", "ls"]))
-        pane = next((shown_terminal["pane"] for space in shown["spaces"] for tab in space["tabs"]
-                     for shown_terminal in tab["terminals"] if shown_terminal["terminal"] == address), None)
-        if pane is None:
-            raise CheckError(f"the app shows no pane for terminal {address}")
-        panel = json.loads(run(["herdr-app", "do", "pane.split", json.dumps(dict(direction="right", pane=pane, mod="inbox"))]))
-        run(["hc", "label", address, f"inbox.panel={panel['pane']}"])
+        pane = terminals.current().inbox_panel(address, None)
+        if pane is not None:
+            terminals.current().set_labels(address, {"inbox.panel": pane})
     except (CheckError, KeyError, ValueError) as error:
         print(f"The inbox panel was not opened beside terminal {address}: {error}. Typing /inbox in the session opens it.")
 
@@ -276,7 +273,7 @@ def main() -> int:
 
     try:
         herd = fleet.Fleet()
-        own_address = os.environ.get("HC_TERMINAL_ID")
+        own_address = terminals.current().self_address()
         if args.command == "ask":
             running = {herd.coordinated_domain(a): a for a in herd.agents if herd.coordinated_domain(a)}
             domains = [d for d, a in running.items() if a["address"] != own_address] if args.all else args.domains
@@ -287,7 +284,7 @@ def main() -> int:
                 if agent is None:
                     print(f"{domain}: no coordinator running")
                     continue
-                sent = subprocess.run(["hc", "send", agent["address"], ask_text(args.reason)], capture_output=True, text=True)
+                sent = terminals.current().send(agent["address"], ask_text(args.reason), timeout=None)
                 print(f"{domain}: asked" if sent.returncode == 0
                       else f"{domain}: not asked: {(sent.stderr or sent.stdout).strip()[:200]}")
             return 0

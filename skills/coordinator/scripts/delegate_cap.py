@@ -39,6 +39,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fleet  # noqa: E402
+import terminals  # noqa: E402
 from background_tasks import is_working  # noqa: E402
 from fleet import CheckError  # noqa: E402
 
@@ -65,8 +66,7 @@ def record(entry: dict) -> None:
 def sent(to: str, text: str, entry: dict) -> int:
     """Send the allowed message with `hc send`, print what it printed, and log whether it arrived."""
     try:
-        send = subprocess.run(["hc", "send", "--json", "--", to, text], capture_output=True, text=True,
-                              timeout=SECONDS_TO_WAIT_FOR_A_SEND)
+        send = terminals.current().send(to, text, structured=True, timeout=SECONDS_TO_WAIT_FOR_A_SEND)
     except (OSError, subprocess.TimeoutExpired) as error:
         print(f"delegate_cap: NOT SENT, hc send {to}: {error}", file=sys.stderr)
         record(dict(entry, decision="allowed", sent=False))

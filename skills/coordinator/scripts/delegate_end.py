@@ -46,6 +46,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config  # noqa: E402
 import fleet  # noqa: E402
 import inbox_state  # noqa: E402
+import terminals  # noqa: E402
 from background_tasks import is_working  # noqa: E402
 from fleet import CheckError, age, run  # noqa: E402
 
@@ -113,10 +114,7 @@ def end(herd: fleet.Fleet, domain: str, target: str, now: dt.datetime, relayed: 
                       "already settled, then pass --relayed")
 
     slug, branch, _, _ = fleet.repo_of(agent["cwd"], herd.checkouts)
-    terminal_text = subprocess.run(
-        ["hc", "read", "--lines", "80", agent["address"]],
-        capture_output=True, text=True, timeout=fleet.COMMAND_TIMEOUT_SECONDS,
-    ).stdout
+    terminal_text = terminals.current().read(agent["address"], 80, timeout=fleet.COMMAND_TIMEOUT_SECONDS)
     terminal_info = fleet.terminal_or_none(agent["address"]) or {}
     terminal_labels = terminal_info.get("labels") or {}
     tab_label = agent["tab_label"] or f"{domain} [{task}]"

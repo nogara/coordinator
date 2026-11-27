@@ -27,15 +27,14 @@ import datetime as dt
 import glob
 import json
 import os
-import pwd
 import re
 import subprocess
 import time
-import uuid
 from pathlib import Path
 from background_tasks import still_running
 from check_error import CheckError
 from config import CONFIG, CONFIG_FILE
+import terminals
 from notes_files import NOTES_DIR, DomainFiles, domain_files, domains_in, open_and_later, section_text, why_not_a_domain
 
 HOME = Path.home()
@@ -53,13 +52,10 @@ TRANSCRIPT_TAIL_BYTES = (2_000_000, 12_000_000)
 COMMAND_TIMEOUT_SECONDS = 60
 AGENT_PROGRAM = "claude-code"
 CLAUDE = "claude"
-HC_NOT_FOUND = 3
 DELEGATE_FLAGS = [str(arg) for arg in CONFIG["delegate_claude_args"]]
 # The name the Herdr app gives this machine, when the app runs on another one.
 HERDR_MACHINE = CONFIG["herdr_machine"]
-TERMINAL_NAME = re.compile(r"[a-z0-9_-]{1,32}")
-SECONDS_TO_WAIT_FOR_TAB = 15
-SECONDS_TO_WAIT_FOR_AGENT = 60
+SECONDS_TO_WAIT_FOR_AGENT = terminals.SECONDS_TO_WAIT_FOR_AGENT
 
 
 def run(command: list[str], cwd: str | None = None) -> str:
@@ -138,9 +134,7 @@ def as_agent(terminal: dict) -> dict:
     )
 
 
-def runs_an_agent(listed_terminal: dict) -> bool:
-    """A terminal as `hc ls` lists it: its foreground program is Claude Code, or reports a status."""
-    return listed_terminal.get("agent") == AGENT_PROGRAM or listed_terminal.get("status") is not None
+runs_an_agent = terminals.runs_an_agent
 
 
 def agent_started_from_its_shell(terminal: dict) -> bool:
@@ -150,23 +144,12 @@ def agent_started_from_its_shell(terminal: dict) -> bool:
 
 
 def listed_terminals() -> list[dict]:
-    listed = json.loads(run(["hc", "ls", "--json"])).get("terminals")
-    if listed is None:
-        raise CheckError("hc ls returned no terminals field")
-    return listed
+    return terminals.current().ls()
 
 
 def terminal_or_none(address: str) -> dict | None:
     """The terminal as `hc get` prints it, or None when herdr-core has no such terminal."""
-    try:
-        got = subprocess.run(["hc", "get", address, "--json"], capture_output=True, text=True, timeout=COMMAND_TIMEOUT_SECONDS)
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise CheckError(f"hc get {address}: {error}")
-    if got.returncode == HC_NOT_FOUND:
-        return None
-    if got.returncode != 0:
-        raise CheckError(f"hc get {address}: {(got.stderr or got.stdout).strip()[:300]}")
-    return json.loads(got.stdout)
+    return terminals.current().get(address)
 
 
 def load_agents(terminals_file: str | None = None) -> list[dict]:
@@ -263,7 +246,7 @@ class Fleet:
 
     def own_domain(self) -> str:
         """The domain of the coordinator in the terminal this script runs in."""
-        address = os.environ.get("HC_TERMINAL_ID")
+        address = terminals.current().self_address()
         here = next((a for a in self.agents if a["address"] == address), None)
         domain = self.coordinated_domain(here) if here else None
         if not domain:
@@ -316,86 +299,24 @@ class Fleet:
         return self.repos_worked_in(domain) | backlog_repos(self.text(domain), self.checkouts)
 
 
-# herdr-core starts terminals with its own environment, not the user's. A login
-# shell gives the session the PATH of the user's own terminals.
-POSIX_SHELLS = {"zsh", "bash", "sh", "ksh", "dash"}
-LOGIN_SHELL = pwd.getpwuid(os.getuid()).pw_shell or os.environ.get("SHELL") or ""
-SHELL = LOGIN_SHELL if os.path.basename(LOGIN_SHELL) in POSIX_SHELLS else "/bin/sh"
-LOGIN_SHELL_THAT_BECOMES_ITS_COMMAND = [SHELL, "-lic", 'exec "$@"', SHELL]
-LOGIN_SHELL_THAT_OUTLIVES_ITS_COMMAND = [SHELL, "-lic", '"$@"; exec "$0" -li', SHELL]
-
-
 def launch(name: str | None, cwd: str, tab_label: str, space: str, labels: dict[str, str], program: list[str],
            parent: str | None, tab: str | None = None) -> dict:
-    """Start a coding agent in a new herdr-core terminal shown in the Herdr app.
-
-    program is the agent's command and its arguments, such as ["claude",
-    "--model", "opus"]. With a parent, the app lists the new agent under that
-    terminal's agent and the terminal keeps running when the parent's program
-    ends, and ends when the agent exits. Without one, the terminal keeps a
-    shell when the agent exits. The
-    terminal joins the tab with that id, or gets a new one, and the tab is
-    named tab_label. Returns the new terminal as `hc get` prints it, with
-    `running` false when no agent showed in it: `hc run` returns before
-    the agent starts, and the terminal ends at once when it cannot.
-    """
-    if name is not None and not TERMINAL_NAME.fullmatch(name):
-        raise CheckError(f"{name!r} is not a terminal name: 1 to 32 of a-z, 0-9, - and _")
-    tab = tab or f"tb{uuid.uuid4().hex}"
-    all_labels = {"herdr.space": space, "herdr.tab": tab, **labels}
-    lineage = ["--parent", parent, "--outlive-parent", "--no-notify"] if parent else ["--no-parent"]
-    command = ["hc", "run", "--bg", "--json", *(["--name", name] if name else []), "--cwd", cwd, *lineage]
-    for key, value in all_labels.items():
-        command += ["--label", f"{key}={value}"]
-    shell = LOGIN_SHELL_THAT_BECOMES_ITS_COMMAND if parent else LOGIN_SHELL_THAT_OUTLIVES_ITS_COMMAND
-    started = json.loads(run([*command, "--", *shell, *program]))
-    try:
-        terminal = terminal_or_none(started["address"]) or dict(started, labels=all_labels)
-    except CheckError:
-        terminal = dict(started, labels=all_labels)
-    terminal["tab_named"] = name_tab(tab, tab_label)
-    terminal["running"] = agent_showed_in(started["address"])
-    return terminal
-
-
-def agent_showed_in(address: str) -> bool:
-    deadline = time.time() + SECONDS_TO_WAIT_FOR_AGENT
-    while time.time() < deadline:
-        try:
-            listed = next((t for t in listed_terminals() if t["address"] == address), None)
-        except CheckError:
-            listed = {}
-        if listed is None:
-            return False
-        if runs_an_agent(listed):
-            return True
-        time.sleep(1)
-    return False
+    """Start a coding agent in a new terminal shown in the Herdr app; see HcTerminals.launch."""
+    return terminals.current().launch(name, cwd, labels, program, parent, space, tab, tab_label)
 
 
 def terminal_text(address: str, lines: int = 40) -> str:
     """What a live or finished terminal shows, for a failure report."""
     try:
-        read = subprocess.run(["hc", "read", "--lines", str(lines), address], capture_output=True, text=True,
-                              timeout=COMMAND_TIMEOUT_SECONDS)
+        read = terminals.current().read(address, lines)
     except (OSError, subprocess.TimeoutExpired):
         return ""
-    return "\n".join(line for line in read.stdout.splitlines() if line.strip())[-1500:]
+    return "\n".join(line for line in read.splitlines() if line.strip())[-1500:]
 
 
 def name_tab(tab: str, tab_label: str) -> bool:
-    """Name a Herdr app tab. The app takes about two seconds to show a tab for a new terminal."""
-    deadline = time.time() + SECONDS_TO_WAIT_FOR_TAB
-    while time.time() < deadline:
-        try:
-            renamed = subprocess.run(["herdr-app", "do", "tab.rename", json.dumps(dict(id=tab, name=tab_label))],
-                                     capture_output=True, text=True, timeout=COMMAND_TIMEOUT_SECONDS)
-        except (OSError, subprocess.TimeoutExpired):
-            return False
-        if renamed.returncode == 0:
-            return True
-        time.sleep(0.5)
-    return False
+    """Name a Herdr app tab."""
+    return terminals.current().rename_tab(tab, tab_label)
 
 
 def app_tab_id(tab: str) -> str:
@@ -414,10 +335,7 @@ def app_address(address: str) -> str:
 
 def app_address_note(address: str) -> str | None:
     """The line naming a terminal's address in the app, when the app runs on another machine."""
-    if not HERDR_MACHINE:
-        return None
-    return (f"In the Herdr app, on the machine that runs it, this terminal is {app_address(address)}: "
-            f"herdr-app do agent.focus '{json.dumps(dict(terminal=app_address(address)))}'")
+    return terminals.current().focus_hint(address)
 
 
 def tab_rename_hint(terminal: dict, tab_label: str) -> str | None:
@@ -429,15 +347,8 @@ def tab_rename_hint(terminal: dict, tab_label: str) -> str | None:
 
 
 def end_terminal(address: str) -> None:
-    """End a terminal's program, if it still runs, and remove its record.
-
-    The app closes a tab when its last terminal ends.
-    """
-    try:
-        subprocess.run(["hc", "kill", address], capture_output=True, timeout=COMMAND_TIMEOUT_SECONDS)
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise CheckError(f"hc kill {address}: {error}")
-    run(["hc", "rm", address])
+    """End a terminal's program, if it still runs, and remove its record."""
+    terminals.current().end(address)
 
 
 def keep_scratch_out_of_git(cwd: str) -> bool:

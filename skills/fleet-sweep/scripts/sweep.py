@@ -37,6 +37,9 @@ from ended import ended_record_rows, prune_ended
 from parking import park_ignored, split_build_output, unpark
 from prs import branch_prs, is_ancestor, merged_heads, pr_summary, pull_requests, run
 
+import terminals  # noqa: E402  (ended.py puts the coordinator's scripts on sys.path)
+from check_error import CheckError  # noqa: E402
+
 APP_WORKTREE_ROOTS = (
     os.path.expanduser("~/.codex/worktrees/"),
     "/.claude/worktrees/",
@@ -69,7 +72,6 @@ def worktrees(repo):
         yield fields.get("worktree", ""), fields.get("branch", "").removeprefix("refs/heads/")
 
 
-HC_NOT_FOUND = 3
 AGENT_PROGRAMS = {"claude", "codex"}
 
 
@@ -87,20 +89,19 @@ def live_sessions():
     None when herdr-core could not be read, apart from a terminal that ended
     between the listing and its lookup.
     """
-    out = run("hc", "ls", "--json")
-    if out is None:
+    host = terminals.current()
+    try:
+        listing = host.ls()
+    except CheckError:
         return None
     sessions = []
-    for listed in json.loads(out).get("terminals", []):
+    for listed in listing:
         try:
-            got = subprocess.run(["hc", "get", listed["address"], "--json"], capture_output=True, text=True)
-        except OSError:
+            terminal = host.get(listed["address"])
+        except CheckError:
             return None
-        if got.returncode == HC_NOT_FOUND:
+        if terminal is None:
             continue
-        if got.returncode != 0:
-            return None
-        terminal = json.loads(got.stdout)
         if not runs_an_agent(listed, terminal):
             continue
         labels = terminal.get("labels") or {}

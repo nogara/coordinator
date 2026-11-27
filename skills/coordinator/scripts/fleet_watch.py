@@ -149,12 +149,13 @@ OWNER_MISSES_BEFORE_GONE = 2
 NAME_MISSES_BEFORE_UNKNOWN = 2
 URGENT = re.compile(r"^(ask|gone|unknown|owner|pr \S+ (merged|closed|checks failure|review changes_requested|not found))"
                     r"|^settled \S+ (blocked|error)\b")
-STATE_SOURCE = "hc"
 RULE_SECONDS = 20
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import fleet  # noqa: E402
 import notes_files  # noqa: E402
+import terminals  # noqa: E402
+from config import CONFIG  # noqa: E402
 from due_steps import due_lines  # noqa: E402
 from mac_clock import MacClock  # noqa: E402
 from update_check import update_line  # noqa: E402
@@ -169,6 +170,8 @@ from watch_domain import (adopt_earlier_pr, copy_to_same_pr, copy_to_same_termin
 from watch_lock import take_state_lock  # noqa: E402
 from watch_prs import ended_lines, pr_events, pr_snapshot  # noqa: E402
 from watch_rules import rule_lines  # noqa: E402
+
+STATE_SOURCE = CONFIG["runtime"]
 
 
 def live_agents(cache=None):
@@ -250,7 +253,7 @@ def tell_owner_it_stopped(owner):
     print(message, file=sys.stderr, flush=True)
     if owner:
         try:
-            subprocess.run(["hc", "send", owner, message], capture_output=True, timeout=COMMAND_TIMEOUT_SECONDS)
+            terminals.current().send(owner, message, timeout=COMMAND_TIMEOUT_SECONDS)
         except (OSError, subprocess.TimeoutExpired):
             pass
 
@@ -273,7 +276,7 @@ def main():
     parser.add_argument("--state", help="default: <state_dir>/watch/<domain>.json")
     parser.add_argument("--agent", action="append", default=[])
     parser.add_argument("--pr", action="append", default=[])
-    parser.add_argument("--owner", default=os.environ.get("HC_TERMINAL_ID"))
+    parser.add_argument("--owner", default=terminals.current().self_address())
     parser.add_argument("--domain")
     args = parser.parse_args()
     if not args.state:
