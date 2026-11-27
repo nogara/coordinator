@@ -143,7 +143,7 @@ def exit_session(agent: dict) -> None:
     """
     address = agent["address"]
     asked_at_ms = time.time() * 1000
-    terminals.current().keys(address, EXIT_COMMAND)
+    terminals.current().keys(address, list(EXIT_COMMAND))
     typed = prompt_box_text(address)
     if typed != EXIT_COMMAND:
         terminals.current().keys(address, ["backspace"] * len(EXIT_COMMAND))
@@ -189,9 +189,7 @@ def coordinator_name(domain: str) -> str:
 
 def start_in(address: str, domain: str, cwd: str, label: str) -> None:
     """Start a new coordinator session in `cwd`, in a terminal at a shell prompt or one whose agent has exited."""
-    terminal = terminals.current().get(address)
-    if terminal is None:
-        raise CheckError(f"hc get {address} --json: no such terminal")
+    terminal = terminals.current().get(address, strict=True)
     program = [fleet.CLAUDE, "--name", label, f"/coordinator {domain}"]
     if terminal.get("state") == "live":
         at_a_shell = (listed(address) or {}).get("agent") in SHELLS

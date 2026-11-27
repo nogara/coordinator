@@ -48,8 +48,8 @@ class Terminals(Protocol):
     def ls(self) -> list[dict]:
         """Every live terminal, as `hc ls` lists it."""
 
-    def get(self, address: str) -> dict | None:
-        """The terminal as `hc get` prints it, or None when it is gone."""
+    def get(self, address: str, *, strict: bool = False) -> dict | None:
+        """The terminal as `hc get` prints it, or None when it is gone. strict raises CheckError for a missing one too."""
 
     def launch(self, name: str | None, cwd: str, labels: dict[str, str], command: list[str], parent: str | None,
                space: str, tab: str | None, tab_label: str) -> dict:
@@ -99,7 +99,9 @@ class HcTerminals:
             raise CheckError("hc ls returned no terminals field")
         return listed
 
-    def get(self, address: str) -> dict | None:
+    def get(self, address: str, *, strict: bool = False) -> dict | None:
+        if strict:
+            return json.loads(_run(["hc", "get", address, "--json"]))
         try:
             got = subprocess.run(["hc", "get", address, "--json"], capture_output=True, text=True, timeout=COMMAND_TIMEOUT_SECONDS)
         except (OSError, subprocess.TimeoutExpired) as error:
