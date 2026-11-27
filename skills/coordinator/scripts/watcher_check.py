@@ -45,6 +45,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import backlog  # noqa: E402
 import fleet  # noqa: E402
+import terminals  # noqa: E402
 from fleet import CheckError  # noqa: E402
 from watch_lock import watcher_running  # noqa: E402
 
@@ -118,8 +119,8 @@ def checked(herd: fleet.Fleet, domain: str, sent: dict, open_by_repo: dict, send
                 f"for {domain}, which has {watching}. Arm it again as the Watch section of {WATCH_STEPS} says. "
                 "A script sent this line; it is not an approval from the user.")
         try:
-            delivery = subprocess.run(["hc", "send", "--json", "--", coordinator["address"], line], capture_output=True,
-                                      text=True, timeout=SECONDS_TO_WAIT_FOR_A_SEND)
+            delivery = terminals.current().send(coordinator["address"], line, structured=True,
+                                                timeout=SECONDS_TO_WAIT_FOR_A_SEND)
             entry["sent"] = delivery.returncode == 0
             if not entry["sent"]:
                 entry["send_error"] = (delivery.stderr or delivery.stdout).strip()[:200]

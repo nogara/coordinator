@@ -33,10 +33,13 @@ path, from the skill's base directory. Settings come from
    memory, not a doc: plans, specs and reports go wherever the user keeps
    docs. Create it when missing, in the shape under [Backlog](#backlog).
    Done when you have read every open item.
-3. Label your terminal as this domain's coordinator with
-   `hc label "$HC_TERMINAL_ID" fleet.role=coordinator fleet.domain=<domain>`.
+3. Label your terminal as this domain's coordinator. `fleet_term.py self`
+   prints JSON, `{"address": "..."}`, and `label` takes that address field,
+   not the JSON, so run this one line with your domain in place of
+   `<domain>`:
+   `python3 ~/.claude/skills/coordinator/scripts/fleet_term.py label "$(python3 ~/.claude/skills/coordinator/scripts/fleet_term.py self | python3 -c 'import json, sys; print(json.load(sys.stdin)["address"])')" fleet.role=coordinator fleet.domain=<domain>`
    The fleet scripts and other coordinators find you by these labels.
-4. Sweep the fleet with `scripts/fleet_status.py` and `hc ls`. The first
+4. Sweep the fleet with `scripts/fleet_status.py` and `python3 ~/.claude/skills/coordinator/scripts/fleet_term.py ls`. The first
    lists your delegates, their pull requests and what each waits on the user
    for. The second lists every live terminal. Match the backlog's handles
    by terminal name or session id. Sessions the user started themselves in
@@ -136,7 +139,7 @@ turn. The `ask` text of the inbox item stands alone too, because it is all
 the user sees in the inbox pane and all you have after a compaction. It
 names the PR by number or the thing by its name. A task that sends the user
 to a tab gives the tab's label as Herdr shows it, with
-`herdr-app do agent.focus '{"terminal":"<address>"}'` as a step that takes
+`herdr-app do agent.focus '{"terminal":"<address>"}'` (Herdr only) as a step that takes
 them there. When the config sets `herdr_machine`, the app runs on another
 machine and knows the terminal as `<herdr_machine>/<address>`, as in
 `devvm-fis/t9q`; use that form, which `delegate_start.py` prints.
@@ -160,7 +163,7 @@ has the commands and model selection rules. Before starting a delegate:
   stop point in the brief. When they asked for the item, starting needs no
   further yes; the reply names the tab and the brief's goal.
 - Start every delegate with `scripts/delegate_start.py`, never with a bare
-  `hc run`, which sets no label, runs no cap check and leaves no record
+  terminal start, which sets no label, runs no cap check and leaves no record
   when the delegate ends.
 - One worktree per delegate, one delegate per checkout. Two that would touch
   the same files run in sequence.
@@ -243,7 +246,7 @@ stay with it. A new task gets a new delegate, so that each delegate
 finishes and the sweep can remove it.
 
 **At most three delegates working at once.** A delegate is working when
-`hc ls` shows it `working`. Start a delegate, or send one new work, only
+`python3 ~/.claude/skills/coordinator/scripts/fleet_term.py ls` shows it `working`. Start a delegate, or send one new work, only
 while fewer than three of yours are working; queue the rest in the backlog
 in order. When a slot opens, relay the user's answers first. A delegate that
 keeps working on its brief keeps its slot, so let it work.

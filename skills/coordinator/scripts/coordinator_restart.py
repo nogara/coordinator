@@ -7,7 +7,7 @@ Start, restart and stop coordinators in the Herdr app.
   coordinator_restart.py restart <domain> --terminal <address>
                                                    replace whatever session runs in that terminal
   coordinator_restart.py stop <domain>             exit one that replied ready and leave its terminal a shell
-  coordinator_restart.py start <domain> --cwd <path> [--space <space id>] [--name <tab name>]
+  coordinator_restart.py start <domain> --cwd <path> [--space <space id> | --session <Rex session id>] [--name <tab name>]
                                                    start one in a new tab, for a domain that has none running
   coordinator_restart.py start <domain> --cwd <path> --in <address>
                                                    start one in a terminal that holds only a shell
@@ -16,7 +16,12 @@ Run it when the user asks. A restart gives the coordinator a new Claude Code
 process, so it loads the installed Claude Code and the current skill text.
 The new session starts in the same terminal, so its address, its tab and
 its delegates' link to it stay. When that terminal ended with its session,
-the new one starts in a new terminal in the same tab. Its conversation and
+the new one starts in a new terminal in the same tab. On Rex, a block left at
+a shell after the exit is reused the same way; one that closed, or still runs
+a program, is replaced by a new block in a new window of the same session, the
+old block closes, and the command prints the coordinator's old and new
+addresses: its delegates' fleet.parent and briefs still name the old one, so
+they must be told. Its conversation and
 its inbox do not carry over: the backlog does, which is why `ask` comes
 first. `ask` sends the coordinator the user's reason and the Restart steps from
 SKILL.md, and the coordinator replies "ready for restart" when its backlog
@@ -58,6 +63,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fleet  # noqa: E402
 import inbox_state  # noqa: E402
+import terminals  # noqa: E402
 from fleet import CheckError, run  # noqa: E402
 
 READY = "ready for restart"
@@ -88,7 +94,7 @@ def ask_text(reason: str) -> str:
 
 
 def replied_ready(address: str) -> bool:
-    text = run(["hc", "read", "--lines", "400", address])
+    text = terminals.current().read(address, 400, strict=True)
     return any(line.strip().lower().startswith(f"{REPLY_MARK} {READY}") for line in text.splitlines())
 
 
@@ -128,7 +134,7 @@ def background_copies_since(started_ms: float) -> list[str]:
 
 def prompt_box_text(address: str) -> str | None:
     """The text in the session's prompt box, or None when its screen shows no prompt box."""
-    lines = run(["hc", "read", address]).splitlines()
+    lines = terminals.current().read(address, strict=True).splitlines()
     prompts = [line for line in lines if line.strip().startswith(PROMPT_MARK)]
     return prompts[-1].split(PROMPT_MARK, 1)[1].replace("\xa0", " ").strip() if prompts else None
 
@@ -142,13 +148,13 @@ def exit_session(agent: dict) -> None:
     """
     address = agent["address"]
     asked_at_ms = time.time() * 1000
-    run(["hc", "keys", address, *EXIT_COMMAND])
+    terminals.current().keys(address, list(EXIT_COMMAND))
     typed = prompt_box_text(address)
     if typed != EXIT_COMMAND:
-        run(["hc", "keys", address, *(["backspace"] * len(EXIT_COMMAND))])
+        terminals.current().keys(address, ["backspace"] * len(EXIT_COMMAND))
         raise Refused(f"the prompt box in terminal {address} holds {typed!r} after typing {EXIT_COMMAND}, so someone "
                       "has a draft there; the typed command was removed")
-    run(["hc", "keys", address, "enter"])
+    terminals.current().keys(address, ["enter"])
     deadline = time.time() + SECONDS_TO_WAIT_FOR_EXIT
     while time.time() < deadline:
         time.sleep(POLL_SECONDS)
@@ -156,7 +162,7 @@ def exit_session(agent: dict) -> None:
         if terminal is None or not fleet.runs_an_agent(terminal):
             break
     else:
-        screen = subprocess.run(["hc", "read", address], capture_output=True, text=True).stdout.strip()[-800:]
+        screen = terminals.current().read(address, timeout=None).strip()[-800:]
         raise CheckError(f"the session in terminal {address} did not exit within {SECONDS_TO_WAIT_FOR_EXIT} seconds. "
                          f"Its screen:\n{screen}")
     copies = background_copies_since(asked_at_ms)
@@ -171,9 +177,7 @@ def send_bare_text(address: str, text: str) -> None:
     From a terminal, `hc send` wraps the text in an <hc from="..."> tag, which
     a shell cannot run.
     """
-    environment = {key: value for key, value in os.environ.items() if key != "HC_TERMINAL_ID"}
-    sent = subprocess.run(["hc", "send", address, text], capture_output=True, text=True, env=environment,
-                          timeout=fleet.COMMAND_TIMEOUT_SECONDS + 60)
+    sent = terminals.current().send(address, text, tagged=False, timeout=fleet.COMMAND_TIMEOUT_SECONDS + 60)
     if sent.returncode != 0:
         raise CheckError(f"hc send {address}: {(sent.stderr or sent.stdout).strip()[:300]}")
 
@@ -188,28 +192,47 @@ def coordinator_name(domain: str) -> str:
     return " ".join(word.capitalize() for word in domain.split("-") if word)
 
 
-def start_in(address: str, domain: str, cwd: str, label: str) -> None:
-    """Start a new coordinator session in `cwd`, in a terminal at a shell prompt or one whose agent has exited."""
-    terminal = json.loads(run(["hc", "get", address, "--json"]))
+def start_in(address: str, domain: str, cwd: str, label: str, restarting: dict | None = None) -> None:
+    """Start a new coordinator session in `cwd`, in a terminal at a shell prompt or one whose agent has exited.
+
+    restarting is the agent a restart just exited there. On Rex, when its block
+    closed or does not sit at a shell, the new session gets a new window in the
+    same session instead of a refusal, and the address change is printed.
+    """
+    on_rex = isinstance(terminals.current(), terminals.RexTerminals)
+    replaceable = on_rex and restarting is not None
+    if replaceable:
+        terminal = terminals.current().get(address) or dict(state="gone", labels={"herdr.space": restarting.get("space")})
+    else:
+        terminal = terminals.current().get(address, strict=True)
     program = [fleet.CLAUDE, "--name", label, f"/coordinator {domain}"]
     if terminal.get("state") == "live":
-        at_a_shell = (listed(address) or {}).get("agent") in SHELLS
-        if not at_a_shell:
+        shown = listed(address)
+        # Rex lists a shell with no agent at all; hc names the shell.
+        at_a_shell = (shown or {}).get("agent") in SHELLS or (
+            on_rex and (shown is not None or not replaceable) and not fleet.runs_an_agent(shown or {}))
+        if at_a_shell:
+            terminals.current().set_labels(address, {"fleet.role": "coordinator", "fleet.domain": domain, **PINNED})
+            send_bare_text(address, f"cd {shlex.quote(cwd)} && {shlex.join(program)}")
+            report_started(address, domain)
+            return
+        if not replaceable:
             raise Refused(f"terminal {address} is not at a shell prompt, so a command typed there would go to its program")
-        run(["hc", "label", address, "fleet.role=coordinator", f"fleet.domain={domain}", *(f"{k}={v}" for k, v in PINNED.items())])
-        send_bare_text(address, f"cd {shlex.quote(cwd)} && {shlex.join(program)}")
-        report_started(address, domain)
-        return
     labels = terminal.get("labels") or {}
     if not labels.get("herdr.space"):
         raise CheckError(f"terminal {address} ended and has no herdr.space label, so the new session has no space to open in")
     carried = {key: labels[key] for key in ("inbox.panel",) if key in labels}
     started = fleet.launch(
-        name=None, cwd=cwd, tab_label=label, space=labels["herdr.space"], tab=labels.get("herdr.tab"),
+        # On Rex the new session gets a window of its own in the old one's session, never a split of the old window.
+        name=None, cwd=cwd, tab_label=label, space=labels["herdr.space"], tab=None if on_rex else labels.get("herdr.tab"),
         labels={"fleet.role": "coordinator", "fleet.domain": domain, **PINNED, **carried},
         program=program, parent=None,
     )
-    run(["hc", "rm", address])
+    terminals.current().discard(address)
+    if on_rex:
+        print(f"The {domain} coordinator's address changed from {address} to {started['address']}. Its delegates' "
+              f"fleet.parent and briefs still name {address}: tell each delegate its coordinator is now "
+              f"{started['address']}.")
     open_inbox_panel(started["address"])
     report_started(started["address"], domain)
 
@@ -226,13 +249,9 @@ def open_inbox_panel(address: str) -> None:
         terminal = fleet.terminal_or_none(address) or {}
         if (terminal.get("labels") or {}).get("inbox.panel"):
             return
-        shown = json.loads(run(["herdr-app", "ls"]))
-        pane = next((shown_terminal["pane"] for space in shown["spaces"] for tab in space["tabs"]
-                     for shown_terminal in tab["terminals"] if shown_terminal["terminal"] == address), None)
-        if pane is None:
-            raise CheckError(f"the app shows no pane for terminal {address}")
-        panel = json.loads(run(["herdr-app", "do", "pane.split", json.dumps(dict(direction="right", pane=pane, mod="inbox"))]))
-        run(["hc", "label", address, f"inbox.panel={panel['pane']}"])
+        pane = terminals.current().inbox_panel(address, None)
+        if pane is not None:  # None: the backend already said why there is no panel
+            terminals.current().set_labels(address, {"inbox.panel": pane})
     except (CheckError, KeyError, ValueError) as error:
         print(f"The inbox panel was not opened beside terminal {address}: {error}. Typing /inbox in the session opens it.")
 
@@ -269,14 +288,16 @@ def main() -> int:
     start.add_argument("domain")
     start.add_argument("--cwd", required=True)
     start.add_argument("--name", help='the tab and session name; default: the domain in title case, as "Web App"')
-    start.add_argument("--space", help="the Herdr app space id, from `herdr-app ls`; default: this terminal's space")
+    start.add_argument("--space", "--session", dest="space",
+                       help="the Herdr app space id from `herdr-app ls`, or the Rex session id; "
+                            "default: this terminal's space or session")
     start.add_argument("--in", dest="in_terminal", metavar="ADDRESS",
                        help="start in this terminal, which holds only a shell")
     args = parser.parse_args()
 
     try:
         herd = fleet.Fleet()
-        own_address = os.environ.get("HC_TERMINAL_ID")
+        own_address = terminals.current().self_address()
         if args.command == "ask":
             running = {herd.coordinated_domain(a): a for a in herd.agents if herd.coordinated_domain(a)}
             domains = [d for d, a in running.items() if a["address"] != own_address] if args.all else args.domains
@@ -287,7 +308,7 @@ def main() -> int:
                 if agent is None:
                     print(f"{domain}: no coordinator running")
                     continue
-                sent = subprocess.run(["hc", "send", agent["address"], ask_text(args.reason)], capture_output=True, text=True)
+                sent = terminals.current().send(agent["address"], ask_text(args.reason), timeout=None)
                 print(f"{domain}: asked" if sent.returncode == 0
                       else f"{domain}: not asked: {(sent.stderr or sent.stdout).strip()[:200]}")
             return 0
@@ -310,6 +331,8 @@ def main() -> int:
             own = fleet.find_agent(herd.agents, own_address or "")
             space = args.space or (own or {}).get("space")
             if not space:
+                if isinstance(terminals.current(), terminals.RexTerminals):
+                    raise CheckError("pass --session <session id>; this terminal has no Rex session")
                 raise CheckError("pass --space <space id> from `herdr-app ls`; this terminal has no herdr.space label")
             terminal = fleet.launch(
                 name=None, cwd=cwd, tab_label=label,
@@ -336,7 +359,7 @@ def main() -> int:
             print(f"The {domain} coordinator exited. Terminal {agent['address']} holds a shell. Start a new one with:\n"
                   f"  {fleet.SCRIPTS}/coordinator_restart.py start {domain} --cwd {agent['cwd']} --in {agent['address']}")
             return 0
-        start_in(agent["address"], domain, agent["cwd"], label)
+        start_in(agent["address"], domain, agent["cwd"], label, restarting=agent)
         return 0
     except Refused as refusal:
         print(f"REFUSED  {refusal}")

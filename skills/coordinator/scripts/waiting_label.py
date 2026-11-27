@@ -14,8 +14,9 @@ import atexit
 import fcntl
 import os
 import re
-import subprocess
 import sys
+
+import terminals
 
 WAITING_LABEL_PREFIX = "fleet.waiting."
 LABEL_TIMEOUT_SECONDS = 10
@@ -35,10 +36,8 @@ def own_task_id():
 
 
 def set_label(terminal, assignment):
-    try:
-        subprocess.run(["hc", "label", terminal, assignment], capture_output=True, timeout=LABEL_TIMEOUT_SECONDS)
-    except (OSError, subprocess.TimeoutExpired):
-        pass
+    key, _, value = assignment.partition("=")
+    terminals.current().set_labels(terminal, {key: value}, quiet_timeout=LABEL_TIMEOUT_SECONDS)
 
 
 def declare_waiting():
@@ -47,7 +46,7 @@ def declare_waiting():
     The label's key holds the task ID, so each waiting command writes only its own label. A label
     left by a watcher killed with SIGKILL names a task that no longer runs, and the list ignores it.
     """
-    terminal, task = os.environ.get("HC_TERMINAL_ID"), own_task_id()
+    terminal, task = terminals.current().self_address(), own_task_id()
     if not terminal or not task:
         return lambda: None
     key = WAITING_LABEL_PREFIX + task

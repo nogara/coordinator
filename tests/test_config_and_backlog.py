@@ -44,6 +44,22 @@ class TestConfig(unittest.TestCase):
         with self.assertRaises(ValueError):
             config.load_config(p)
 
+    def test_runtime_defaults_to_hc(self):
+        p = self.sb.root / "runtime_default.json"
+        p.write_text(json.dumps({}))
+        self.assertEqual(config.load_config(p)["runtime"], "hc")
+
+    def test_runtime_rex_accepted(self):
+        p = self.sb.root / "runtime_rex.json"
+        p.write_text(json.dumps({"runtime": "rex"}))
+        self.assertEqual(config.load_config(p)["runtime"], "rex")
+
+    def test_unknown_runtime_rejected(self):
+        p = self.sb.root / "runtime_bad.json"
+        p.write_text(json.dumps({"runtime": "orca"}))
+        with self.assertRaisesRegex(ValueError, r"runtime.*hc.*rex"):
+            config.load_config(p)
+
     def test_unknown_key_raises(self):
         p = self.sb.root / "bad.json"
         p.write_text(json.dumps({"not_a_key": 1}))

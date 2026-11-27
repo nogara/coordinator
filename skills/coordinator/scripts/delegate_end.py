@@ -46,6 +46,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config  # noqa: E402
 import fleet  # noqa: E402
 import inbox_state  # noqa: E402
+import terminals  # noqa: E402
 from background_tasks import is_working  # noqa: E402
 from fleet import CheckError, age, run  # noqa: E402
 
@@ -113,10 +114,7 @@ def end(herd: fleet.Fleet, domain: str, target: str, now: dt.datetime, relayed: 
                       "already settled, then pass --relayed")
 
     slug, branch, _, _ = fleet.repo_of(agent["cwd"], herd.checkouts)
-    terminal_text = subprocess.run(
-        ["hc", "read", "--lines", "80", agent["address"]],
-        capture_output=True, text=True, timeout=fleet.COMMAND_TIMEOUT_SECONDS,
-    ).stdout
+    terminal_text = terminals.current().read(agent["address"], 80, timeout=fleet.COMMAND_TIMEOUT_SECONDS)
     terminal_info = fleet.terminal_or_none(agent["address"]) or {}
     terminal_labels = terminal_info.get("labels") or {}
     tab_label = agent["tab_label"] or f"{domain} [{task}]"
@@ -129,7 +127,7 @@ def end(herd: fleet.Fleet, domain: str, target: str, now: dt.datetime, relayed: 
     )
     if not record["session"]:
         raise CheckError(f"no session id found for {name}, so it could not be resumed. To end it anyway, run "
-                         f"`hc kill {agent['address']}`, then `hc rm {agent['address']}`")
+                         f"{terminals.current().end_command(agent['address'])}")
     fleet.ENDED_DIR.mkdir(parents=True, exist_ok=True)
     path = fleet.ended_record_path(record["session"])
     path.write_text(json.dumps(record, indent=1))
@@ -196,7 +194,8 @@ def resume(herd: fleet.Fleet, domain: str, name: str) -> int:
     if not terminal["running"]:
         raise CheckError(f"no agent showed in terminal {terminal['address']} within {fleet.SECONDS_TO_WAIT_FOR_AGENT} "
                          f"seconds, so the ended record stays. It shows:\n{fleet.terminal_text(terminal['address'])}\n"
-                         f"Remove a finished terminal with `hc rm {terminal['address']}` before trying again")
+                         f"Remove a finished terminal with {terminals.current().remove_command(terminal['address'])} "
+                         "before trying again")
     path.unlink()
     print(f"resumed {name} as terminal {terminal['address']}, tab \"{tab_label}\". Send it the work with:\n"
           f"  {fleet.SCRIPTS}/delegate_cap.py --to {name} --send \"<what arrived>\"")

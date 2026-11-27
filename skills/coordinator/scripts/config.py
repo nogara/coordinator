@@ -31,7 +31,9 @@ DEFAULTS = {
     "open_ask_patterns": [],
     "check_for_updates": True,
     "herdr_machine": None,
+    "runtime": "hc",
 }
+RUNTIMES = ("hc", "rex")
 TYPES_OF_UNSET_DEFAULTS = {"notes_limit_kb": int, "done_limit_kb": int}
 OLDER_NAMES = {"backlog_dir": "notes_dir", "backlog_limit_kb": "notes_limit_kb"}
 # Accepted and ignored so older config files keep working during upgrade.
@@ -61,6 +63,8 @@ def load_config(path: Path = CONFIG_FILE) -> dict:
         if expected is not None and value is not None and type(value) is not expected:
             raise ValueError(f"{path}: {key} must be a JSON {expected.__name__}")
     merged = {**DEFAULTS, **active}
+    if merged["runtime"] not in RUNTIMES:
+        raise ValueError(f"{path}: runtime must be one of {', '.join(RUNTIMES)}; got {merged['runtime']!r}")
     if merged["delegate_env"] is None:
         merged["delegate_env"] = {}
     for env_key, env_value in merged["delegate_env"].items():

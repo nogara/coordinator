@@ -40,6 +40,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config  # noqa: E402
 import fleet  # noqa: E402
+import terminals  # noqa: E402
 from fleet import CheckError  # noqa: E402
 
 CLAUDE_CODE_EFFORTS = ("low", "medium", "high", "xhigh", "max")
@@ -116,7 +117,8 @@ def main() -> int:
         if not terminal["running"]:
             raise CheckError(f"no agent showed in terminal {terminal['address']} within {fleet.SECONDS_TO_WAIT_FOR_AGENT} "
                              f"seconds. It shows:\n{fleet.terminal_text(terminal['address'])}\n"
-                             f"Remove a finished terminal with `hc rm {terminal['address']}` before trying again")
+                             f"Remove a finished terminal with {terminals.current().remove_command(terminal['address'])} "
+                             "before trying again")
         if ended_record.exists():
             ended_record.unlink()
     except (CheckError, OSError, KeyError, ValueError, subprocess.TimeoutExpired) as error:

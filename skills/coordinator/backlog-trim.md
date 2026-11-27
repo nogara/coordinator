@@ -56,7 +56,7 @@ A delegate trims a backlog whose text outside Done is over 150 KB, about
 `trim_by_delegate_over_kb` changes this size. Start one delegate for the
 trim, with these steps as its brief and the backlog file as its
 boundary. It reads the file section by section and checks what is live
-against `fleet_status.py`, the open PRs and `hc ls`. Then it sends you one
+against `fleet_status.py`, the open PRs and `python3 ~/.claude/skills/coordinator/scripts/fleet_term.py ls`. Then it sends you one
 list of "is this still open?" questions. It writes the trimmed text to a
 new file and leaves the backlog itself to you.
 
