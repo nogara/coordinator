@@ -82,7 +82,7 @@ their answers.
 Send your coordinator no message for progress or for a question. Write
 `REPORT.md` and end your turn with the same in your reply, and the
 coordinator's fleet watcher wakes it. Use
-`hc send <coordinator's address> "<text>"` only when you are blocked on
+`python3 ~/.claude/skills/coordinator/scripts/fleet_term.py send <coordinator's address> "<text>"` only when you are blocked on
 something another session holds, such as a shared check or a virtual
 machine.
 ```
